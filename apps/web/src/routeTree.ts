@@ -6,6 +6,7 @@ import { createRootRoute, createRoute } from '@tanstack/react-router';
 
 import { ConsoleShell } from './components/AppShell';
 import { AlertsPage } from './pages/AlertsPage';
+import { AuthorizationsPage } from './pages/AuthorizationsPage';
 import {
   AnalyticsPage,
   validateAnalyticsPageSearch,
@@ -106,6 +107,12 @@ const ocppConformanceRoute = createRoute({
   component: OcppConformancePage,
 });
 
+const authorizationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sys/authorizations',
+  component: AuthorizationsPage,
+});
+
 export interface AlertsPageSearch {
   /** Deep-link to a specific tab on the alerts page. The page treats
    *  any unknown value as 'firing' (the default landing tab). */
@@ -140,4 +147,5 @@ export const routeTree = rootRoute.addChildren([
   analyticsRoute,
   sysConfigRoute,
   ocppConformanceRoute,
+  authorizationsRoute,
 ]);

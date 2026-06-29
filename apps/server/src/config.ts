@@ -23,6 +23,13 @@ export const configSchema = z.object({
   // Generate a hash with `pnpm --filter @eveys-console/server hash-password`.
   CONSOLE_USERS: z.string().default(''),
 
+  // Convenience plaintext login for laptop dev. When both are set, the
+  // server hashes the password at boot and registers the user. Overrides
+  // any matching entry in CONSOLE_USERS. Leave empty in production —
+  // prefer CONSOLE_USERS with pre-computed bcrypt hashes.
+  CONSOLE_USERNAME: z.string().default(''),
+  CONSOLE_PASSWORD: z.string().default(''),
+
   // Anti-robot proof-of-work CAPTCHA on the login form.
   // Difficulty = number of leading zero bits the client's hash must have.
   // 16 ≈ 50 ms on a laptop; 20 ≈ 1 s; tune for your threat model.
