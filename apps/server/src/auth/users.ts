@@ -20,7 +20,10 @@ export interface UserRecord {
 export class UserStore {
   private readonly users: Map<string, string>;
 
-  constructor(cfg: Pick<Config, 'CONSOLE_USERS'> & Partial<Pick<Config, 'CONSOLE_USERNAME' | 'CONSOLE_PASSWORD'>>) {
+  constructor(
+    cfg: Pick<Config, 'CONSOLE_USERS'> &
+      Partial<Pick<Config, 'CONSOLE_USERNAME' | 'CONSOLE_PASSWORD'>>,
+  ) {
     this.users = new Map();
     if (cfg.CONSOLE_USERS.trim()) {
       for (const entry of cfg.CONSOLE_USERS.split(',')) {
@@ -47,9 +50,7 @@ export class UserStore {
     if (plainUser && plainPass) {
       this.users.set(plainUser, bcryptHashSync(plainPass, 10));
     } else if (plainUser || plainPass) {
-      throw new Error(
-        'CONSOLE_USERNAME and CONSOLE_PASSWORD must both be set, or both empty.',
-      );
+      throw new Error('CONSOLE_USERNAME and CONSOLE_PASSWORD must both be set, or both empty.');
     }
   }
 

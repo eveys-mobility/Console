@@ -110,7 +110,7 @@ function AuthorizationsTable({
                   {isPending ? formatTime(row.requested_at) : formatTime(row.decided_at)}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
-                  {isPending ? formatTime(row.last_attempt_at) : row.decided_by ?? '—'}
+                  {isPending ? formatTime(row.last_attempt_at) : (row.decided_by ?? '—')}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   <div className="font-mono">{row.last_attempt_ip ?? '—'}</div>

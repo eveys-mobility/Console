@@ -46,10 +46,10 @@ async function decide(
   cpId: string,
   action: 'approve' | 'reject' | 'revoke',
 ): Promise<Authorization> {
-  const res = await fetch(
-    `${BASE}/sys/authorizations/${encodeURIComponent(cpId)}/${action}`,
-    { method: 'POST', headers: authHeaders(token) },
-  );
+  const res = await fetch(`${BASE}/sys/authorizations/${encodeURIComponent(cpId)}/${action}`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
   if (!res.ok) throw new Error(`authorizations.${action} ${res.status}`);
   return (await res.json()) as Authorization;
 }
