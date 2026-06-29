@@ -28,7 +28,7 @@ scrape_configs:
   - job_name: eveys-console
     static_configs:
       - targets: ['server:8090']
-    metrics_path: /metrics
+    metrics_path: /api/metrics
 
   - job_name: eveys-gateway
     static_configs:

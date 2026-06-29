@@ -7,11 +7,14 @@
 // Console server is on a different host (e.g. behind a reverse proxy).
 
 const DEFAULT_CONSOLE_PORT = 8090;
+const API_PREFIX = '/api';
 
 function defaultBaseUrl(): string {
-  if (typeof window === 'undefined') return `http://127.0.0.1:${DEFAULT_CONSOLE_PORT}`;
+  if (typeof window === 'undefined') {
+    return `http://127.0.0.1:${DEFAULT_CONSOLE_PORT}${API_PREFIX}`;
+  }
   const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:${DEFAULT_CONSOLE_PORT}`;
+  return `${protocol}//${hostname}:${DEFAULT_CONSOLE_PORT}${API_PREFIX}`;
 }
 
 function defaultWsUrl(): string {
