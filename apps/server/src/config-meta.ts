@@ -130,6 +130,27 @@ const META: Record<keyof Config, KeyMeta> = {
     sensitive: true,
   },
 
+  CONSOLE_USERNAME: {
+    description:
+      'Plaintext convenience login (paired with CONSOLE_PASSWORD). Hashed at boot. Overrides any matching CONSOLE_USERS entry.',
+    category: 'auth',
+    mutable: true,
+    restart: 'console',
+    range: 'non-empty username, or empty to disable',
+    default: '',
+    sensitive: false,
+  },
+  CONSOLE_PASSWORD: {
+    description:
+      'Plaintext password for CONSOLE_USERNAME. Hashed at boot with bcrypt cost 10. Leave empty in production; prefer CONSOLE_USERS.',
+    category: 'auth',
+    mutable: true,
+    restart: 'console',
+    range: 'non-empty password, or empty to disable',
+    default: '',
+    sensitive: true,
+  },
+
   AUTH_POW_DIFFICULTY: {
     description:
       'Proof-of-work CAPTCHA difficulty (leading-zero bits required on the client hash). 16 ≈ 50 ms; 20 ≈ 1 s.',

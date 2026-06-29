@@ -1,5 +1,6 @@
-// User store seeded from CONSOLE_USERS. Format: comma-separated
-// `username:bcrypthash` pairs. Whitespace around either side is trimmed.
+// User store seeded from CONSOLE_USERS (CSV of `username:bcrypthash`) and,
+// optionally, a single plaintext CONSOLE_USERNAME / CONSOLE_PASSWORD pair
+// that gets hashed at boot. Whitespace around either side is trimmed.
 //
 // We deliberately don't ship a stable interface for "look up user by name"
 // — the only consumer is the login route. If we later want roles per user
@@ -9,7 +10,7 @@ import bcrypt from 'bcryptjs';
 
 import type { Config } from '../config.js';
 
-const { compare: bcryptCompare } = bcrypt;
+const { compare: bcryptCompare, hashSync: bcryptHashSync } = bcrypt;
 
 export interface UserRecord {
   username: string;
@@ -19,25 +20,36 @@ export interface UserRecord {
 export class UserStore {
   private readonly users: Map<string, string>;
 
-  constructor(cfg: Pick<Config, 'CONSOLE_USERS'>) {
+  constructor(cfg: Pick<Config, 'CONSOLE_USERS'> & Partial<Pick<Config, 'CONSOLE_USERNAME' | 'CONSOLE_PASSWORD'>>) {
     this.users = new Map();
-    if (!cfg.CONSOLE_USERS.trim()) return;
-    for (const entry of cfg.CONSOLE_USERS.split(',')) {
-      const trimmed = entry.trim();
-      if (!trimmed) continue;
-      const idx = trimmed.indexOf(':');
-      if (idx <= 0) {
-        throw new Error(`CONSOLE_USERS entry has no colon: ${trimmed}`);
+    if (cfg.CONSOLE_USERS.trim()) {
+      for (const entry of cfg.CONSOLE_USERS.split(',')) {
+        const trimmed = entry.trim();
+        if (!trimmed) continue;
+        const idx = trimmed.indexOf(':');
+        if (idx <= 0) {
+          throw new Error(`CONSOLE_USERS entry has no colon: ${trimmed}`);
+        }
+        const username = trimmed.slice(0, idx).trim();
+        const hash = trimmed.slice(idx + 1).trim();
+        if (!username || !hash) {
+          throw new Error(`CONSOLE_USERS entry has empty username or hash: ${trimmed}`);
+        }
+        if (this.users.has(username)) {
+          throw new Error(`CONSOLE_USERS has duplicate username: ${username}`);
+        }
+        this.users.set(username, hash);
       }
-      const username = trimmed.slice(0, idx).trim();
-      const hash = trimmed.slice(idx + 1).trim();
-      if (!username || !hash) {
-        throw new Error(`CONSOLE_USERS entry has empty username or hash: ${trimmed}`);
-      }
-      if (this.users.has(username)) {
-        throw new Error(`CONSOLE_USERS has duplicate username: ${username}`);
-      }
-      this.users.set(username, hash);
+    }
+
+    const plainUser = cfg.CONSOLE_USERNAME?.trim() ?? '';
+    const plainPass = cfg.CONSOLE_PASSWORD ?? '';
+    if (plainUser && plainPass) {
+      this.users.set(plainUser, bcryptHashSync(plainPass, 10));
+    } else if (plainUser || plainPass) {
+      throw new Error(
+        'CONSOLE_USERNAME and CONSOLE_PASSWORD must both be set, or both empty.',
+      );
     }
   }
 
