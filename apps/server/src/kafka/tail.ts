@@ -47,7 +47,7 @@ export class KafkaTail {
   async start() {
     if (this.running) return;
     await this.consumer.connect();
-    this.topics = [
+    const wanted = [
       this.cfg.KAFKA_TOPICS_BOOT,
       this.cfg.KAFKA_TOPICS_STATUS,
       this.cfg.KAFKA_TOPICS_METER,
@@ -58,12 +58,32 @@ export class KafkaTail {
       this.cfg.KAFKA_TOPICS_DIAGNOSTICS_STATUS,
       this.cfg.KAFKA_TOPICS_FIRMWARE_STATUS,
     ];
-    for (const t of this.topics) {
-      await this.consumer.subscribe({ topic: t, fromBeginning: false });
+    // Subscribe one topic at a time so a missing topic on the broker
+    // (UNKNOWN_TOPIC_OR_PARTITION on laptop dev where the gateway hasn't
+    // created every topic yet) doesn't fail the whole startup. We log
+    // and continue; /sys/status reports what we ended up subscribed to.
+    const subscribed: string[] = [];
+    const skipped: { topic: string; reason: string }[] = [];
+    for (const t of wanted) {
+      try {
+        await this.consumer.subscribe({ topic: t, fromBeginning: false });
+        subscribed.push(t);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        skipped.push({ topic: t, reason });
+        this.log.warn({ topic: t, err: reason }, 'kafka.subscribe.skipped');
+      }
     }
-    this.log.info({ topics: this.topics }, 'kafka.subscribed');
+    this.topics = subscribed;
+    this.log.info({ topics: subscribed, skipped }, 'kafka.subscribed');
 
-    await this.consumer.run({ eachMessage: this.handle });
+    if (subscribed.length > 0) {
+      await this.consumer.run({ eachMessage: this.handle });
+    } else {
+      this.log.warn(
+        'kafka.no_topics: every configured topic was missing on the broker; consumer idle',
+      );
+    }
     this.running = true;
   }
 
