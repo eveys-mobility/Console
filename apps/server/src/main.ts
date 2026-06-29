@@ -164,26 +164,36 @@ async function main() {
   }
 
   const startedAt = new Date();
-  await registerHealthRoutes(app);
-  await registerMetricsRoute(app);
-  await registerAuthRoutes(app, { pow, users });
-  await registerSysStatusRoute(app, { broker, gateway, kafka, startedAt });
-  await registerSysConfigRoute(app, { config, overrideStore });
-  await registerSysConsoleAdminConfigRoute(app, { config, overrideStore, logger });
-  await registerSysGatewayConfigRoute(app, { gateway });
-  await registerSysGatewayAdminConfigRoute(app, { gateway });
-  await registerSysAuthorizationsRoute(app, { gateway });
-  await registerSysRestartRoute(app, { config, gateway });
-  await registerSysKpisRoute(app, { gateway });
-  await registerSysChargePointTransactionsRoute(app, { gateway });
-  await registerSysCpReservationsRoute(app, { gateway });
-  await registerSysCpFramesRoute(app, { gateway });
-  await registerSysCpUptimeRoute(app, { gateway });
-  await registerSysFleetStatusHistoryRoute(app, { gateway });
-  await registerSysCpEventsRoute(app, { eventLogRoot: config.EVENT_LOG_DIR });
-  await registerSysTransactionsRoute(app, { gateway });
-  await registerSysAlertsRoute(app, { logger, channelsStore, rulesStore });
-  await registerDiagnosticsRoutes(app, { store: diagnosticsStore });
+  // All HTTP routes live under /api so a reverse proxy can route by
+  // path prefix. WS stays at /ws — the browser builds its URL with the
+  // CONSOLE_WS_URL helper, not the REST base, so it's intentionally
+  // separate. Health/metrics are inside the prefix too: scrapers and
+  // healthchecks already need to know the deployment's URL shape.
+  await app.register(
+    async (api) => {
+      await registerHealthRoutes(api);
+      await registerMetricsRoute(api);
+      await registerAuthRoutes(api, { pow, users });
+      await registerSysStatusRoute(api, { broker, gateway, kafka, startedAt });
+      await registerSysConfigRoute(api, { config, overrideStore });
+      await registerSysConsoleAdminConfigRoute(api, { config, overrideStore, logger });
+      await registerSysGatewayConfigRoute(api, { gateway });
+      await registerSysGatewayAdminConfigRoute(api, { gateway });
+      await registerSysAuthorizationsRoute(api, { gateway });
+      await registerSysRestartRoute(api, { config, gateway });
+      await registerSysKpisRoute(api, { gateway });
+      await registerSysChargePointTransactionsRoute(api, { gateway });
+      await registerSysCpReservationsRoute(api, { gateway });
+      await registerSysCpFramesRoute(api, { gateway });
+      await registerSysCpUptimeRoute(api, { gateway });
+      await registerSysFleetStatusHistoryRoute(api, { gateway });
+      await registerSysCpEventsRoute(api, { eventLogRoot: config.EVENT_LOG_DIR });
+      await registerSysTransactionsRoute(api, { gateway });
+      await registerSysAlertsRoute(api, { logger, channelsStore, rulesStore });
+      await registerDiagnosticsRoutes(api, { store: diagnosticsStore });
+    },
+    { prefix: '/api' },
+  );
   await registerWsRoute(app, { broker, gateway });
 
   if (users.size === 0) {
