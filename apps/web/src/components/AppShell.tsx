@@ -312,9 +312,7 @@ function NavItem({ to, label, icon, active }: NavItemProps) {
 // the workflow nav above. Icon-only gear — Configuration is a
 // secondary surface; the sidebar nav stays focused on operator
 // workflows above the bar.
-// Where the "What's new" link points. Hardcoded for now; if/when the
-// repo moves under the eveys-mobility org this constant updates.
-const RELEASES_URL = 'https://github.com/MostafaMoradii/eveys-console/releases';
+const RELEASES_URL = 'https://github.com/eveys-mobility/Console/releases';
 
 function SidebarFooter({ path }: { path: string }) {
   const configActive = path.startsWith('/sys/config');
