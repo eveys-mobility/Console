@@ -390,6 +390,40 @@ export class GatewayClient {
   dataTransfer(cpId: string, body: Record<string, unknown>) {
     return this.command('command_data_transfer', cpId, 'data-transfer', body);
   }
+
+  // ---- Authorizations (#0013) -------------------------------------------
+
+  listAuthorizations(params: { status?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.json<unknown>('list_authorizations', `/api/v1/authorizations${suffix}`);
+  }
+
+  approveAuthorization(cpId: string) {
+    return this.json<unknown>(
+      'approve_authorization',
+      `/api/v1/authorizations/${encodeURIComponent(cpId)}/approve`,
+      { method: 'POST' },
+    );
+  }
+
+  rejectAuthorization(cpId: string) {
+    return this.json<unknown>(
+      'reject_authorization',
+      `/api/v1/authorizations/${encodeURIComponent(cpId)}/reject`,
+      { method: 'POST' },
+    );
+  }
+
+  revokeAuthorization(cpId: string) {
+    return this.json<unknown>(
+      'revoke_authorization',
+      `/api/v1/authorizations/${encodeURIComponent(cpId)}/revoke`,
+      { method: 'POST' },
+    );
+  }
 }
 
 export class GatewayError extends Error {

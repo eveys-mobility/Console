@@ -132,7 +132,11 @@ export type GatewayOp =
   | 'command_cancel_reservation'
   | 'command_get_diagnostics'
   | 'command_get_log'
-  | 'command_data_transfer';
+  | 'command_data_transfer'
+  | 'list_authorizations'
+  | 'approve_authorization'
+  | 'reject_authorization'
+  | 'revoke_authorization';
 
 export function recordWsConnection(delta: 1 | -1): void {
   if (delta === 1) wsConnections.inc();

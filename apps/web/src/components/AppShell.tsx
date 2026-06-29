@@ -11,6 +11,7 @@ import {
   Receipt,
   Search as SearchIcon,
   Settings,
+  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -240,6 +241,12 @@ function NavContents({ path }: { path: string }) {
           label="Alerts"
           icon={<BellRing className="h-4 w-4" />}
           active={path.startsWith('/sys/alerts')}
+        />
+        <NavItem
+          to="/sys/authorizations"
+          label="Authorizations"
+          icon={<ShieldCheck className="h-4 w-4" />}
+          active={path.startsWith('/sys/authorizations')}
         />
       </NavSection>
 
