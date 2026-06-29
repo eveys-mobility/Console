@@ -30,8 +30,8 @@ licensed under the project's licence (Apache-2.0, see
 ## Getting started
 
 ```bash
-git clone git@github.com:MostafaMoradii/eveys-console.git
-cd eveys-console
+git clone git@github.com:eveys-mobility/Console.git
+cd Console
 pnpm install
 pnpm gen:api-types          # regenerates gateway types from the
                             # vendored openapi.yaml
