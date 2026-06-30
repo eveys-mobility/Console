@@ -65,7 +65,18 @@ need() {
 }
 
 dc() {
-  (cd "${REPO_ROOT}" && docker compose -f "${COMPOSE_FILE}" "$@")
+  # The compose file declares `${VAR:?msg}` for JWT_SECRET,
+  # GATEWAY_BASE_URL, GATEWAY_TOKEN, KAFKA_BROKERS — docker-compose
+  # only reads --env-file (not apps/server/.env automatically). Pass
+  # both when they exist so the interpolation succeeds without
+  # forcing operators to `export` every variable into their shell.
+  local env_args=()
+  for f in "${REPO_ROOT}/.env" "${REPO_ROOT}/apps/server/.env"; do
+    if [[ -f "${f}" ]]; then
+      env_args+=(--env-file "${f}")
+    fi
+  done
+  (cd "${REPO_ROOT}" && docker compose "${env_args[@]}" -f "${COMPOSE_FILE}" "$@")
 }
 
 # Read EVEYS_ENV from shell env, falling back to repo-root .env. Same
