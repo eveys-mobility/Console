@@ -207,6 +207,22 @@ if [[ ${#services[@]} -eq 0 ]]; then
 fi
 
 info "building: ${services[*]}"
+# Cache-buster digest for the web image build. Vite inlines VITE_*
+# env vars at build time; if the operator edits apps/web/.env (or the
+# repo-root .env) and runs `make update` again, we need the cache for
+# the `pnpm build` layer to invalidate even if the surrounding ARG
+# values look identical to BuildKit. Hash whatever env files exist
+# and pass the digest as a build arg the Dockerfile consumes — any
+# byte change in those files produces a different digest, so the
+# build layer reliably re-runs.
+if [[ "${DO_WEB}" -eq 1 ]]; then
+  WEB_ENV_DIGEST="$(cat \
+    "${REPO_ROOT}/apps/web/.env" \
+    "${REPO_ROOT}/.env" \
+    2>/dev/null | sha256sum | cut -d' ' -f1)"
+  export WEB_ENV_DIGEST
+  info "web env digest: ${WEB_ENV_DIGEST:0:12}…"
+fi
 dc build "${services[@]}" \
   || fail "build failed"
 

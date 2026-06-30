@@ -140,6 +140,12 @@ services:
       args:
         VITE_CONSOLE_BASE_URL: ${VITE_CONSOLE_BASE_URL:-}
         VITE_WS_URL: ${VITE_WS_URL:-}
+        # Content digest of apps/web/.env + repo-root .env. Computed by
+        # scripts/updater.sh and exported. Any byte change in either
+        # file invalidates the `pnpm build` layer reliably — so editing
+        # apps/web/.env and re-running `make update` always picks up
+        # the new VITE_* values without a manual `--no-cache`.
+        WEB_ENV_DIGEST: ${WEB_ENV_DIGEST:-}
     image: eveys-console-web:dev
     container_name: eveys-console-web
     ports:
