@@ -112,12 +112,16 @@ services:
       - '8090:8090'
     volumes:
       - console-data:/data
+    # CMD (not CMD-SHELL) — the runtime is distroless and has no shell.
+    # Calling node directly skips the sh wrap. Node is at /nodejs/bin/node
+    # in gcr.io/distroless/nodejs20-debian12; the fetch global is built-in
+    # on Node 20.
     healthcheck:
       test:
-        [
-          'CMD-SHELL',
-          'node -e "fetch(''http://localhost:8090/api/healthz'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
-        ]
+        - CMD
+        - /nodejs/bin/node
+        - -e
+        - "fetch('http://localhost:8090/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 3s
       retries: 5
