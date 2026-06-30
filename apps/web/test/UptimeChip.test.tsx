@@ -119,8 +119,10 @@ describe('UptimeChip — popover + window switcher', () => {
     await user.click(screen.getByTestId('uptime-chip'));
 
     expect(screen.getByTestId('uptime-chip-popover')).toBeInTheDocument();
-    // Interval shows up with its reason + clipped times.
-    expect(screen.getByText(/reason: clean/i)).toBeInTheDocument();
+    // Interval shows up with its reason + clipped times. The chip
+    // translates the gateway's raw `clean` into operator-friendly
+    // copy; the title attribute carries the full explanation.
+    expect(screen.getByText(/reason: graceful disconnect/i)).toBeInTheDocument();
   });
 
   it('shows "no outages" when the interval list is empty', async () => {

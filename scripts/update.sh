@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# scripts/update.sh — one-shot updater for the eveys-console stack.
+#
+# Pulls the latest code, rebuilds the `server` and `web` images, and
+# recreates the containers in place. No database — the Console has no
+# schema of its own. Works on a laptop (Docker Desktop) and on a VM
+# running plain Docker + Compose.
+#
+# Usage:
+#   scripts/update.sh                 # pull + rebuild + restart
+#   scripts/update.sh --no-pull       # don't `git pull`
+#   scripts/update.sh --server-only   # rebuild server only (keeps web running)
+#   scripts/update.sh --web-only      # rebuild web only (keeps server running)
+#
+# Environment overrides:
+#   COMPOSE_FILE  Override the compose file path. Defaults to
+#                 `deploy/docker-compose.yml` next to the repo root.
+#
+# Production safety:
+#   Set EVEYS_ENV=production (shell env or repo-root .env) on hosts
+#   where this script must refuse destructive actions. Today the
+#   script never tears containers down — it only rebuilds and
+#   recreates — so the gate just prints a warning and continues. Pass
+#   FORCE_PROD=1 to silence the warning.
+#
+# Exit codes:
+#   0  success
+#   1  precondition failed (missing docker, missing compose file)
+#   2  build / restart step failed
+
+set -euo pipefail
+
+# ---------- options ---------------------------------------------------------
+
+DO_PULL=1
+DO_SERVER=1
+DO_WEB=1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-pull)     DO_PULL=0; shift ;;
+    --server-only) DO_WEB=0; shift ;;
+    --web-only)    DO_SERVER=0; shift ;;
+    -h|--help)
+      sed -n '2,/^set -euo/p' "$0" | sed -n '2,$p' | sed -n '/^#/p' | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) echo "unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+COMPOSE_FILE="${COMPOSE_FILE:-${REPO_ROOT}/deploy/docker-compose.yml}"
+
+# ---------- helpers ---------------------------------------------------------
+
+bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+info() { printf '==> %s\n' "$*"; }
+warn() { printf '!!  %s\n' "$*" >&2; }
+fail() { printf 'ERR %s\n' "$*" >&2; exit 2; }
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || { warn "missing dependency: $1"; exit 1; }
+}
+
+dc() {
+  (cd "${REPO_ROOT}" && docker compose -f "${COMPOSE_FILE}" "$@")
+}
+
+# Read EVEYS_ENV from shell env, falling back to repo-root .env. Same
+# pattern the gateway Makefile uses for its production gate.
+read_eveys_env() {
+  if [[ -n "${EVEYS_ENV:-}" ]]; then
+    printf '%s' "${EVEYS_ENV}"
+    return
+  fi
+  if [[ -f "${REPO_ROOT}/.env" ]]; then
+    grep -E '^EVEYS_ENV=' "${REPO_ROOT}/.env" 2>/dev/null \
+      | head -n1 | cut -d= -f2- | tr -d '"' | tr -d "'"
+  fi
+}
+
+# ---------- preconditions ---------------------------------------------------
+
+need docker
+docker compose version >/dev/null 2>&1 \
+  || { warn "missing dependency: docker compose"; exit 1; }
+[[ -f "${COMPOSE_FILE}" ]] \
+  || { warn "compose file not found: ${COMPOSE_FILE}"; exit 1; }
+
+EVEYS_ENV_RESOLVED="$(read_eveys_env || true)"
+if [[ "${EVEYS_ENV_RESOLVED}" = "production" && "${FORCE_PROD:-0}" != "1" ]]; then
+  warn "EVEYS_ENV=production detected."
+  warn "This script never tears containers down, but it WILL recreate them"
+  warn "in place (brief restart). Pass FORCE_PROD=1 to silence this warning."
+  warn ""
+  read -r -p "Proceed with the Console update? [y/N] " ans
+  case "${ans}" in
+    y|Y|yes|YES) ;;
+    *) echo "Aborted."; exit 1 ;;
+  esac
+fi
+
+bold "eveys-console one-shot update"
+echo "  repo:    ${REPO_ROOT}"
+echo "  compose: ${COMPOSE_FILE}"
+echo ""
+
+# ---------- pull ------------------------------------------------------------
+
+if [[ "${DO_PULL}" -eq 1 ]]; then
+  if [[ -d "${REPO_ROOT}/.git" ]]; then
+    info "git pull --ff-only in ${REPO_ROOT}"
+    if ! (cd "${REPO_ROOT}" && git pull --ff-only); then
+      warn "git pull failed — continuing with the working tree as-is"
+    fi
+  else
+    warn "${REPO_ROOT} is not a git checkout — skipping pull"
+  fi
+fi
+
+# ---------- build + recreate ------------------------------------------------
+
+services=()
+[[ "${DO_SERVER}" -eq 1 ]] && services+=("server")
+[[ "${DO_WEB}" -eq 1 ]] && services+=("web")
+
+if [[ ${#services[@]} -eq 0 ]]; then
+  warn "nothing to do (both --server-only and --web-only would be needed simultaneously)"
+  exit 1
+fi
+
+info "building: ${services[*]}"
+dc build "${services[@]}" \
+  || fail "build failed"
+
+info "recreating: ${services[*]}"
+dc up -d --force-recreate "${services[@]}" \
+  || fail "recreate failed"
+
+info "waiting for server health (best-effort, 30s)"
+# The server container exposes /healthz on :8090 inside the compose
+# network. From the host we hit the mapped port; the mapping lives in
+# the compose file and may have been remapped by the operator, so we
+# read it from `docker port` instead of hard-coding 8090.
+if [[ "${DO_SERVER}" -eq 1 ]]; then
+  server_id="$(dc ps -q server 2>/dev/null || true)"
+  if [[ -n "${server_id}" ]]; then
+    healthy=0
+    for _ in $(seq 1 15); do
+      if docker exec "${server_id}" \
+           sh -c 'wget -qO- http://127.0.0.1:8090/healthz >/dev/null 2>&1 \
+                  || curl -sf http://127.0.0.1:8090/healthz >/dev/null 2>&1'; then
+        healthy=1; break
+      fi
+      sleep 2
+    done
+    if [[ "${healthy}" -eq 1 ]]; then
+      info "server reports healthy"
+    else
+      warn "server did not report /healthz within 30s — check 'docker logs eveys-console-server'"
+    fi
+  fi
+fi
+
+# ---------- done ------------------------------------------------------------
+
+echo ""
+bold "done."
+echo "  hard-refresh the browser (Cmd-Shift-R) to pick up the new web bundle"

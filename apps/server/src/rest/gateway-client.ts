@@ -86,6 +86,18 @@ export class GatewayClient {
     );
   }
 
+  /** Set the AC/DC flag on a charger row. The gateway's post-boot
+   *  ChangeConfiguration push reads this to pick the right measurand
+   *  list (DC adds SoC, AC adds Current.Export). null clears back to
+   *  "unknown" which the push treats as AC. */
+  patchChargerType(cpId: string, chargerType: 'ac' | 'dc' | null) {
+    return this.json<unknown>(
+      'patch_charger_type',
+      `/api/v1/charge-points/${encodeURIComponent(cpId)}/type`,
+      { method: 'PATCH', body: { charger_type: chargerType } },
+    );
+  }
+
   /** Trip the gateway's self-restart trigger. Returns 202 immediately;
    *  the gateway schedules SIGTERM ~500ms later and the container's
    *  restart policy brings it back. Returns 503 when the gateway has

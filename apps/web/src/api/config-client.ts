@@ -69,6 +69,8 @@ export async function fetchGatewayConfig(token: string): Promise<SysConfig> {
 // "the value here is in effect, env value is the fallback after restart".
 
 export interface GatewayAdminConfig {
+  /** Full Settings dump. SecretStr fields auto-redact to '**********'. */
+  settings?: Record<string, unknown>;
   overrides: Record<string, unknown>;
   allowlist: Record<string, string>;
   scope: string;

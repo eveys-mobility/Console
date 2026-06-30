@@ -304,10 +304,88 @@ export async function registerSysTransactionsRoute(app: any, deps: RouteDeps) {
         params.limit = n;
       }
       try {
-        return await deps.gateway.listMeterValues(cp_id, params);
+        const upstream = await deps.gateway.listMeterValues(cp_id, params);
+        return mapMeterValues(upstream);
       } catch (err) {
         return handleGatewayError(err, reply);
       }
     },
   );
+}
+
+interface UpstreamMeterRow {
+  occurred_at: string;
+  cp_id: string;
+  connector_id: number;
+  transaction_id: number | null;
+  // Live gateways nest the measurand under `sample.*`; older tests
+  // and fixtures hand the same fields back flat. Read either shape.
+  sample?: {
+    value?: number | null;
+    measurand?: string | null;
+    phase?: string | null;
+    unit?: string | null;
+  } | null;
+  value?: number | null;
+  measurand?: string | null;
+  phase?: string | null;
+  unit?: string | null;
+  [key: string]: unknown;
+}
+
+interface UpstreamMeterValues {
+  meter_values: UpstreamMeterRow[];
+  next_cursor?: string | null;
+  [key: string]: unknown;
+}
+
+/** Flatten `sample.{value,measurand,phase,unit}` onto the row so the
+ *  Console UI's MeterValueSample (flat shape) keeps working without
+ *  knowing about the gateway's nested storage form. Pure function over
+ *  the upstream JSON. Missing measurand defaults to
+ *  `Energy.Active.Import.Register` (the OCPP-1.6 default sample). */
+export function mapMeterValues(upstream: unknown): {
+  meter_values: Array<{
+    cp_id: string;
+    connector_id: number;
+    transaction_id: number | null;
+    occurred_at: string;
+    measurand: string;
+    phase: string | null;
+    unit: string;
+    value: number;
+  }>;
+  next_cursor: string | null;
+} {
+  const u = upstream as UpstreamMeterValues;
+  const rows = Array.isArray(u?.meter_values) ? u.meter_values : [];
+  const out: ReturnType<typeof mapMeterValues>['meter_values'] = [];
+  for (const r of rows) {
+    // Prefer the nested `sample.*` form (live gateway) and fall back
+    // to the flat form (fixtures / unit tests). A row that carries
+    // neither a `sample.value` nor a top-level `value` is skipped —
+    // there's nothing to chart.
+    const sample = r.sample ?? {};
+    const rawValue = sample.value ?? r.value;
+    const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+    if (!Number.isFinite(value)) continue;
+    const measurand = (sample.measurand ?? r.measurand) ?? null;
+    const phase = (sample.phase ?? r.phase) ?? null;
+    const unit = (sample.unit ?? r.unit) ?? null;
+    out.push({
+      cp_id: r.cp_id,
+      connector_id: r.connector_id,
+      transaction_id: r.transaction_id,
+      occurred_at: r.occurred_at,
+      measurand:
+        typeof measurand === 'string' && measurand ? measurand : 'Energy.Active.Import.Register',
+      phase: typeof phase === 'string' && phase ? phase : null,
+      unit: typeof unit === 'string' && unit ? unit : '',
+      value,
+    });
+  }
+  return {
+    meter_values: out,
+    next_cursor: u?.next_cursor ?? null,
+  };
 }

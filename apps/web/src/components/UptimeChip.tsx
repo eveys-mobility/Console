@@ -118,7 +118,7 @@ export function UptimeChip({ cpId, refetchKey = null }: UptimeChipProps) {
   }
 
   const pct = state.data.uptime_pct;
-  const pctText = `${pct.toFixed(2)}%`;
+  const pctText = formatUptimePct(pct, state.data.offline_seconds_total);
   // Three buckets: green ≥ 99.9, amber ≥ 99, red < 99. Revisit once
   // the ops team writes an SLA target; these are operator-readable
   // defaults, not tuned to any contract.
@@ -205,8 +205,11 @@ export function UptimeChip({ cpId, refetchKey = null }: UptimeChipProps) {
                       {iv.came_online_at.slice(0, 16).replace('T', ' ')}
                     </div>
                     {iv.prior_reason ? (
-                      <div className="text-[10px] text-muted-foreground">
-                        reason: {iv.prior_reason}
+                      <div
+                        className="text-[10px] text-muted-foreground"
+                        title={uptimeReasonHelp(iv.prior_reason)}
+                      >
+                        reason: {formatUptimeReason(iv.prior_reason)}
                       </div>
                     ) : null}
                   </li>
@@ -236,4 +239,53 @@ function formatSeconds(seconds: number): string {
   if (hours < 48) return `${hours}h`;
   const days = Math.round(hours / 24);
   return `${days}d`;
+}
+
+/** Display uptime % with enough precision to keep recorded outages
+ *  visible. The gateway clamps `uptime_pct` to 4 decimal places; rounding
+ *  to 2 decimals turns 99.9974 % (≈68 s of outage in 30 d) into 100.00 %,
+ *  which misleads operators who can see the outages listed below the
+ *  number. Rule: when there ARE recorded offline seconds, never show
+ *  exactly 100.00 % — fall back to as many decimals as the gateway gives
+ *  us, and cap at "<99.9999%" so the operator at least sees the inequality. */
+function formatUptimePct(pct: number, offlineSeconds: number): string {
+  if (offlineSeconds <= 0) return `${pct.toFixed(2)}%`;
+  // There IS recorded downtime — refuse to show 100.00 %.
+  const twoDp = pct.toFixed(2);
+  if (twoDp !== '100.00') return `${twoDp}%`;
+  // 4 dp is the gateway's resolution (see api/timeseries.py:552). If
+  // even 4 dp still rounds to 100.0000 (sub-second outage), fall back
+  // to the inequality form instead of lying.
+  const fourDp = pct.toFixed(4);
+  if (fourDp === '100.0000') return '<99.9999%';
+  return `${fourDp}%`;
+}
+
+/** The gateway records two disconnect reasons today:
+ *  - `clean`: the WS task returned normally (charger closed cleanly).
+ *  - `error`: an unhandled exception terminated the WS task (network
+ *    drop, protocol error, broker hiccup, server bug).
+ *  "error" reads like a charger-side fault to operators — it isn't.
+ *  Map to plain language; the title attribute carries the full
+ *  explanation. */
+function formatUptimeReason(raw: string): string {
+  switch (raw) {
+    case 'error':
+      return 'connection lost';
+    case 'clean':
+      return 'graceful disconnect';
+    default:
+      return raw;
+  }
+}
+
+function uptimeReasonHelp(raw: string): string {
+  switch (raw) {
+    case 'error':
+      return 'The WebSocket session terminated abnormally — typically a network drop, TLS reset, or transient backend error. Not a charger-side fault by itself.';
+    case 'clean':
+      return 'The charger closed the WebSocket gracefully (firmware reboot, maintenance, scheduled idle).';
+    default:
+      return raw;
+  }
 }

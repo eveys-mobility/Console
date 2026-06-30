@@ -136,7 +136,8 @@ export type GatewayOp =
   | 'list_authorizations'
   | 'approve_authorization'
   | 'reject_authorization'
-  | 'revoke_authorization';
+  | 'revoke_authorization'
+  | 'patch_charger_type';
 
 export function recordWsConnection(delta: 1 | -1): void {
   if (delta === 1) wsConnections.inc();
