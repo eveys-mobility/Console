@@ -216,12 +216,24 @@ info "building: ${services[*]}"
 # byte change in those files produces a different digest, so the
 # build layer reliably re-runs.
 if [[ "${DO_WEB}" -eq 1 ]]; then
-  WEB_ENV_DIGEST="$(cat \
-    "${REPO_ROOT}/apps/web/.env" \
-    "${REPO_ROOT}/.env" \
-    2>/dev/null | sha256sum | cut -d' ' -f1)"
-  export WEB_ENV_DIGEST
-  info "web env digest: ${WEB_ENV_DIGEST:0:12}…"
+  # macOS ships `shasum`, Linux ships `sha256sum`. Pick whichever is
+  # on PATH so this works on a dev laptop and on the prod box.
+  if command -v sha256sum >/dev/null 2>&1; then
+    _digest_cmd=(sha256sum)
+  elif command -v shasum >/dev/null 2>&1; then
+    _digest_cmd=(shasum -a 256)
+  else
+    warn "neither sha256sum nor shasum found; web env cache buster disabled (you may need a manual --no-cache rebuild if VITE_* changes don't take effect)"
+    _digest_cmd=()
+  fi
+  if (( ${#_digest_cmd[@]} > 0 )); then
+    WEB_ENV_DIGEST="$(cat \
+      "${REPO_ROOT}/apps/web/.env" \
+      "${REPO_ROOT}/.env" \
+      2>/dev/null | "${_digest_cmd[@]}" | awk '{print $1}')"
+    export WEB_ENV_DIGEST
+    info "web env digest: ${WEB_ENV_DIGEST:0:12}…"
+  fi
 fi
 dc build "${services[@]}" \
   || fail "build failed"
