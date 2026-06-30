@@ -227,10 +227,22 @@ if [[ "${DO_WEB}" -eq 1 ]]; then
     _digest_cmd=()
   fi
   if (( ${#_digest_cmd[@]} > 0 )); then
-    WEB_ENV_DIGEST="$(cat \
-      "${REPO_ROOT}/apps/web/.env" \
-      "${REPO_ROOT}/.env" \
-      2>/dev/null | "${_digest_cmd[@]}" | awk '{print $1}')"
+    # Enumerate first — `cat` on a missing file returns non-zero,
+    # and `set -o pipefail` would propagate that and abort the
+    # build. Repo-root .env is optional (operators may keep
+    # everything in apps/server/.env or apps/web/.env), so a missing
+    # file shouldn't kill the cache buster.
+    _digest_files=()
+    for f in "${REPO_ROOT}/apps/web/.env" "${REPO_ROOT}/.env"; do
+      [[ -f "${f}" ]] && _digest_files+=("${f}")
+    done
+    if (( ${#_digest_files[@]} > 0 )); then
+      WEB_ENV_DIGEST="$(cat "${_digest_files[@]}" | "${_digest_cmd[@]}" | awk '{print $1}')"
+    else
+      # No env files at all — hash an empty string so the arg is
+      # still a stable value rather than empty.
+      WEB_ENV_DIGEST="$(printf '' | "${_digest_cmd[@]}" | awk '{print $1}')"
+    fi
     export WEB_ENV_DIGEST
     info "web env digest: ${WEB_ENV_DIGEST:0:12}…"
   fi
