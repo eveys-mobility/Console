@@ -86,7 +86,7 @@ help:
 	@echo "  make lint               format-check + typecheck (the gates CI runs)"
 	@echo "  make typecheck          tsc --noEmit across both apps"
 	@echo "  make test               vitest across both apps"
-	@echo "  make build              production bundle (tsc for server, tsc + vite build for web)"
+	@echo "  make build              format-check + typecheck + test + production bundle (the CI gate)"
 	@echo ""
 	@echo "Local stack (Docker):"
 	@echo "  make compose-up         build + recreate server + web (passes apps/server/.env)"
@@ -99,7 +99,7 @@ help:
 	@echo "  make grafana-down       stop the observability sidecar"
 	@echo ""
 	@echo "Deployment:"
-	@echo "  make update             one-shot rebuild + recreate (production-safe; see scripts/updater.sh)"
+	@echo "  make update             gates (format + lint + build) then rebuild + recreate (production-safe)"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean              remove dist/, .turbo/, build caches"
@@ -169,6 +169,13 @@ test:
 	$(PNPM) test
 
 build:
+	@# Full CI-equivalent gate before producing the production bundle.
+	@# Order matches CI: format-check → typecheck → test → tsc + vite
+	@# build. Any failure aborts before pnpm build runs, so a broken
+	@# tree can't produce a green bundle.
+	@$(MAKE) format-check
+	@$(MAKE) typecheck
+	@$(MAKE) test
 	$(PNPM) build
 
 # ---- local stack ------------------------------------------------------------
@@ -206,16 +213,29 @@ grafana-down: _require-nonprod
 
 # ---- deployment -------------------------------------------------------------
 
-# One-shot production-safe update: pulls, rebuilds the server and web
-# images, recreates the containers in place, polls /api/healthz. Never
-# tears the stack down; safe on a live host. Delegates to the same
-# script the README documents.
+# One-shot production-safe update: writes formatting fixes, runs the
+# full build gate (which itself runs format-check + typecheck + test +
+# pnpm build), then hands off to scripts/updater.sh for the docker
+# rebuild + recreate + healthcheck poll. Never tears the stack down;
+# safe on a live host.
 #
-#   make update                 # default — pull + rebuild + recreate
+# Gate order:
+#   1. format       — prettier --write (auto-fix any drift)
+#   2. build        — format-check + typecheck + test + tsc + vite build
+#                     (same gate CI runs; see the build target above)
+#   3. updater.sh   — pull + docker build + recreate + /api/healthz poll
+# Any failure in #1 or #2 aborts before anything touches the docker
+# layer, so a broken local tree can't ship.
+#
+#   make update                 # default — format + build + rebuild + recreate
 #   make update NO_PULL=1       # skip git pull
 #   make update SERVER_ONLY=1   # only rebuild + recreate the server
 #   make update WEB_ONLY=1      # only rebuild + recreate the web
+#   make update SKIP_GATES=1    # skip format + build (emergency rollback)
 update:
+	@if [ "$(SKIP_GATES)" != "1" ]; then \
+	  $(MAKE) format && $(MAKE) build; \
+	fi
 	@flags=""; \
 	if [ "$(NO_PULL)" = "1" ]; then flags="$$flags --no-pull"; fi; \
 	if [ "$(SERVER_ONLY)" = "1" ]; then flags="$$flags --server-only"; fi; \
