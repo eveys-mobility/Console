@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatAbsoluteTime } from '@/lib/time';
 import {
   Table,
   TableBody,
@@ -127,7 +128,7 @@ function ArtifactTable({
           <TableRow key={r.id}>
             <TableCell
               className="text-xs text-muted-foreground"
-              title={new Date(r.issued_at * 1000).toISOString()}
+              title={formatAbsoluteTime(new Date(r.issued_at * 1000).toISOString())}
             >
               {formatRelativeFromEpoch(r.issued_at)}
             </TableCell>

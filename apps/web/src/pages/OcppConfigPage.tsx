@@ -62,7 +62,15 @@ export function OcppConfigPage() {
   // Re-seed the draft whenever effective values land/change. Keeps the
   // form synced with the server but doesn't clobber an in-progress
   // edit (we only seed when the field is still untouched).
+  //
+  // Guard on `configQ.data` so the effect doesn't fire while the
+  // query is still loading. Without this, the first effect run seeds
+  // every field to '' (because effective={} when configQ.data is
+  // undefined). When real data lands on the second run, the
+  // "untouched" check (`=== undefined`) is false and the seed is
+  // skipped — leaving the form stuck at zero until a remount.
   useEffect(() => {
+    if (!configQ.data) return;
     setDraft((prev) => {
       const next: DraftState = { ...prev };
       for (const f of OCPP_FIELDS) {
@@ -72,7 +80,7 @@ export function OcppConfigPage() {
       }
       return next;
     });
-  }, [effective]);
+  }, [effective, configQ.data]);
 
   const dirty = useMemo(() => {
     const out: string[] = [];

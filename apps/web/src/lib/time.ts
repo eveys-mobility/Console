@@ -13,22 +13,30 @@
 // is overkill for the read patterns we have.
 
 /**
- * Render `iso` as a human-readable absolute timestamp in UTC, formatted
- * `YYYY-MM-DD HH:MM:SS UTC`. Used as the hover/title companion to
- * `formatRelativeTime`. Returns '—' on null / unparseable.
+ * Render `iso` as a human-readable absolute timestamp in the user's
+ * local timezone, formatted `YYYY-MM-DD HH:MM:SS ±HH:MM`. Used as the
+ * hover/title companion to `formatRelativeTime`. Returns '—' on null /
+ * unparseable.
  *
- * UTC rather than local — the audience is on-call SREs across timezones,
- * a single canonical clock removes ambiguity when reading logs alongside
- * the UI.
+ * Local rather than UTC — operators want to read times in the zone
+ * they're physically in. The trailing offset (e.g. `+03:00`) keeps it
+ * unambiguous when correlating with logs that store UTC, so on-call
+ * SREs can still convert without guessing the operator's locale.
  */
 export function formatAbsoluteTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const pad = (n: number) => String(n).padStart(2, '0');
+  // `getTimezoneOffset` returns minutes WEST of UTC; flip the sign so
+  // a zone east of UTC (e.g. +03:00) prints with a '+'.
+  const offsetMin = -d.getTimezoneOffset();
+  const offsetSign = offsetMin >= 0 ? '+' : '-';
+  const absMin = Math.abs(offsetMin);
+  const offset = `${offsetSign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
   return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${offset}`
   );
 }
 

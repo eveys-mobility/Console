@@ -14,11 +14,15 @@ afterEach(() => {
 });
 
 describe('TimeAgo', () => {
-  it('renders relative time and full UTC in the title attribute', () => {
+  it('renders relative time and a local-zone absolute in the title attribute', () => {
     render(<TimeAgo iso="2026-05-10T11:48:00.000Z" />);
     const node = screen.getByTestId('time-ago');
     expect(node.textContent).toBe('12m ago');
-    expect(node.getAttribute('title')).toBe('2026-05-10 11:48:00 UTC');
+    // Local-zone — test runner's TZ varies; just assert the shape:
+    // `YYYY-MM-DD HH:MM:SS ±HH:MM`.
+    expect(node.getAttribute('title')).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}$/,
+    );
   });
 
   it('renders the em-dash without a title attribute when iso is null', () => {

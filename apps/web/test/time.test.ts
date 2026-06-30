@@ -92,22 +92,43 @@ describe('formatDurationMinutes', () => {
 });
 
 describe('formatAbsoluteTime', () => {
+  // Render in the browser's local zone — the operator sees their own
+  // wall clock. Mock getTimezoneOffset so the assertions are
+  // independent of the test runner's TZ env (CI defaults to UTC).
+
   it('returns em-dash for null / undefined / unparseable', () => {
     expect(formatAbsoluteTime(null)).toBe('—');
     expect(formatAbsoluteTime(undefined)).toBe('—');
     expect(formatAbsoluteTime('not-a-date')).toBe('—');
   });
 
-  it('renders UTC with seconds precision', () => {
-    expect(formatAbsoluteTime('2026-05-10T17:19:25.987000+00:00')).toBe('2026-05-10 17:19:25 UTC');
+  it('renders in local zone with offset suffix', () => {
+    // Pretend we're in +03:00. The input is 17:19 UTC ⇒ 20:19 local.
+    const spy = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-180);
+    try {
+      const out = formatAbsoluteTime('2026-05-10T17:19:25.000Z');
+      // Don't pin the exact local hours — getHours() in the test
+      // process still consults the real OS TZ; just assert structure.
+      expect(out).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+03:00$/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
-  it('renders the same UTC value regardless of input offset', () => {
-    // 17:19 UTC ≡ 19:19 +02:00 — the formatter normalises to UTC.
-    expect(formatAbsoluteTime('2026-05-10T19:19:25.000+02:00')).toBe('2026-05-10 17:19:25 UTC');
+  it('renders a negative offset with a leading minus', () => {
+    const spy = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(300);
+    try {
+      const out = formatAbsoluteTime('2026-05-10T17:19:25.000Z');
+      expect(out).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} -05:00$/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('pads single-digit month/day/hour/min/sec', () => {
-    expect(formatAbsoluteTime('2026-01-05T03:04:05.000Z')).toBe('2026-01-05 03:04:05 UTC');
+    // Test runner's TZ is whatever the host OS is set to, so we can't
+    // pin the hours portion. Assert the YYYY-MM-DD and shape.
+    const out = formatAbsoluteTime('2026-01-05T03:04:05.000Z');
+    expect(out).toMatch(/^2026-01-05 \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}$/);
   });
 });
