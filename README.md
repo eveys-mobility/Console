@@ -116,9 +116,31 @@ The server reads its configuration from `apps/server/.env`. The
 example file (`apps/server/.env.example`) covers the values most
 operators need to touch — JWT secret, gateway token and base URL,
 Kafka brokers, login credentials, optional Alertmanager and
-Prometheus URLs. The web side (`apps/web/.env`) only matters when
-the Console server is on a different host than the web app — by
-default the client builds its URLs from `window.location`.
+Prometheus URLs.
+
+The web side (`apps/web/.env`) only matters when the Console server
+isn't reachable on the same `${hostname}:8090` the SPA would default
+to — i.e. when there's a reverse proxy in front, or when the API
+lives on a different host. Two keys, both Vite build-time:
+
+```bash
+# apps/web/.env
+VITE_CONSOLE_BASE_URL=https://console.example.com/api
+VITE_WS_URL=wss://console.example.com/ws
+```
+
+These are **build-time** — Vite inlines them into the bundle.
+`make update` (or `make compose-up`, which delegates to the same
+updater script) picks them up automatically as docker build args,
+so a `make update` after editing `apps/web/.env` is enough to make
+the new URLs effective. No restart-the-server step needed; the URLs
+are baked into the static bundle the web container serves.
+
+> If the SPA is still hitting `${hostname}:8090` after an update,
+> docker's build cache may be holding a stale layer. Force a clean
+> rebuild with
+> `docker compose -f deploy/docker-compose.yml build --no-cache web`
+> and re-run `make update`.
 
 Inside the running process, a smaller set of keys are flippable
 without a restart. The Configuration page surfaces both, with
