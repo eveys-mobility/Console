@@ -25,7 +25,7 @@ COMPOSE := docker compose $(COMPOSE_ENV) -f deploy/docker-compose.yml
 COMPOSE_OBS := $(COMPOSE) --profile observability
 
 .PHONY: help doctor install dev format format-check lint typecheck test build \
-        gen-api-types mint-token hash-password \
+        gen-api-types build-packages mint-token hash-password \
         compose-up compose-down compose-down-volumes compose-status compose-logs \
         update build-images grafana-up grafana-down \
         clean distclean _require-nonprod
@@ -120,9 +120,19 @@ install:
 	}
 	$(PNPM) install
 	@$(MAKE) gen-api-types
+	@$(MAKE) build-packages
 
 gen-api-types:
 	$(PNPM) --filter @eveys-console/api-types generate
+
+# Build the workspace packages (api-types + protocol). Required for
+# `pnpm dev`, `make test`, and `make build` to resolve the
+# @eveys-console/protocol entry — vite imports the package by its
+# `main`/`exports` paths, which only exist after a build. Mirrors the
+# Dockerfile sequence so local and CI behave the same.
+build-packages:
+	$(PNPM) --filter @eveys-console/api-types build
+	$(PNPM) --filter @eveys-console/protocol build
 
 # ---- day-to-day -------------------------------------------------------------
 
