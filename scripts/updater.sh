@@ -71,7 +71,7 @@ dc() {
   # both when they exist so the interpolation succeeds without
   # forcing operators to `export` every variable into their shell.
   local env_args=()
-  for f in "${REPO_ROOT}/.env" "${REPO_ROOT}/apps/server/.env"; do
+  for f in "${REPO_ROOT}/.env" "${REPO_ROOT}/apps/server/.env" "${REPO_ROOT}/apps/web/.env"; do
     if [[ -f "${f}" ]]; then
       env_args+=(--env-file "$(translate_env_for_docker "${f}")")
     fi
