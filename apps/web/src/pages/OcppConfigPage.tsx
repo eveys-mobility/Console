@@ -137,9 +137,7 @@ export function OcppConfigPage() {
         <Alert variant="destructive">
           <AlertTitle>Save failed</AlertTitle>
           <AlertDescription>
-            {saveMutation.error instanceof Error
-              ? saveMutation.error.message
-              : 'unknown error'}
+            {saveMutation.error instanceof Error ? saveMutation.error.message : 'unknown error'}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -157,15 +155,7 @@ export function OcppConfigPage() {
   );
 }
 
-function Header({
-  dirty,
-  saving,
-  onSave,
-}: {
-  dirty: number;
-  saving: boolean;
-  onSave: () => void;
-}) {
+function Header({ dirty, saving, onSave }: { dirty: number; saving: boolean; onSave: () => void }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>

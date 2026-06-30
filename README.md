@@ -143,59 +143,59 @@ remembering filter flags.
 
 **Environment**
 
-| Target | What it does |
-|---|---|
+| Target        | What it does                                                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `make doctor` | Check local-dev tools (Node 20+, pnpm 9.15, Docker, …) against minimum versions. Run this first if anything else complains. |
 
 **Setup**
 
-| Target | What it does |
-|---|---|
-| `make install` | Run `pnpm install` and regenerate `packages/api-types/` from the gateway's OpenAPI spec. |
-| `make gen-api-types` | Just the regenerate step. Re-run after the gateway publishes a new spec. |
+| Target               | What it does                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `make install`       | Run `pnpm install` and regenerate `packages/api-types/` from the gateway's OpenAPI spec. |
+| `make gen-api-types` | Just the regenerate step. Re-run after the gateway publishes a new spec.                 |
 
 **Day-to-day**
 
-| Target | What it does |
-|---|---|
-| `make dev` | Run `apps/server` and `apps/web` in watch mode (server on `:8090`, web on `:5180`). |
-| `make mint-token` | Print a dev JWT for headless testing without going through the login form. |
-| `make hash-password` | Bcrypt a password for `CONSOLE_USERS`. |
+| Target               | What it does                                                                        |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| `make dev`           | Run `apps/server` and `apps/web` in watch mode (server on `:8090`, web on `:5180`). |
+| `make mint-token`    | Print a dev JWT for headless testing without going through the login form.          |
+| `make hash-password` | Bcrypt a password for `CONSOLE_USERS`.                                              |
 
 **Code quality**
 
-| Target | What it does |
-|---|---|
-| `make format` / `make format-check` | Prettier across the workspace, write or check. |
-| `make lint` | ESLint across both apps. |
-| `make typecheck` | `tsc --noEmit` across both apps. |
-| `make test` | Vitest across both apps. |
-| `make build` | Production bundle — `tsc` for the server, `tsc` + `vite build` for the web. |
+| Target                              | What it does                                                                |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| `make format` / `make format-check` | Prettier across the workspace, write or check.                              |
+| `make lint`                         | ESLint across both apps.                                                    |
+| `make typecheck`                    | `tsc --noEmit` across both apps.                                            |
+| `make test`                         | Vitest across both apps.                                                    |
+| `make build`                        | Production bundle — `tsc` for the server, `tsc` + `vite build` for the web. |
 
 **Local stack (Docker)**
 
-| Target | What it does |
-|---|---|
-| `make compose-up` | Build and recreate `server` + `web`; forwards `apps/server/.env` to the compose interpolation. |
-| `make compose-status` | Container health. |
-| `make compose-logs` | Tail server + web logs. |
-| `make compose-down` | Stop containers, keep the named volume. *(production-gated)* |
-| `make compose-down-volumes` | Stop **and wipe** the `console-data` volume. *(production-gated, asks for confirmation)* |
-| `make build-images` | Build the images without recreating. |
-| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. *(grafana-down is production-gated)* |
+| Target                                  | What it does                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `make compose-up`                       | Build and recreate `server` + `web`; forwards `apps/server/.env` to the compose interpolation.   |
+| `make compose-status`                   | Container health.                                                                                |
+| `make compose-logs`                     | Tail server + web logs.                                                                          |
+| `make compose-down`                     | Stop containers, keep the named volume. _(production-gated)_                                     |
+| `make compose-down-volumes`             | Stop **and wipe** the `console-data` volume. _(production-gated, asks for confirmation)_         |
+| `make build-images`                     | Build the images without recreating.                                                             |
+| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. _(grafana-down is production-gated)_ |
 
 **Deployment**
 
-| Target | What it does |
-|---|---|
+| Target        | What it does                                                                                                                                                                             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `make update` | One-shot rebuild → recreate → poll `/api/healthz`. Never tears the stack down. `NO_PULL=1` skips `git pull`; `SERVER_ONLY=1` / `WEB_ONLY=1` scope it. Delegates to `scripts/updater.sh`. |
 
 **Cleanup**
 
-| Target | What it does |
-|---|---|
-| `make clean` | Drop `dist/`, `.turbo`, Vite caches. Keeps `node_modules`. |
-| `make distclean` | `clean` + drop `node_modules` across the workspace. *(production-gated)* |
+| Target           | What it does                                                             |
+| ---------------- | ------------------------------------------------------------------------ |
+| `make clean`     | Drop `dist/`, `.turbo`, Vite caches. Keeps `node_modules`.               |
+| `make distclean` | `clean` + drop `node_modules` across the workspace. _(production-gated)_ |
 
 ### Production safety
 

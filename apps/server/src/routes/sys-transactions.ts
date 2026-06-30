@@ -369,9 +369,9 @@ export function mapMeterValues(upstream: unknown): {
     const rawValue = sample.value ?? r.value;
     const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
     if (!Number.isFinite(value)) continue;
-    const measurand = (sample.measurand ?? r.measurand) ?? null;
-    const phase = (sample.phase ?? r.phase) ?? null;
-    const unit = (sample.unit ?? r.unit) ?? null;
+    const measurand = sample.measurand ?? r.measurand ?? null;
+    const phase = sample.phase ?? r.phase ?? null;
+    const unit = sample.unit ?? r.unit ?? null;
     out.push({
       cp_id: r.cp_id,
       connector_id: r.connector_id,

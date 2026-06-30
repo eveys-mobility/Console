@@ -83,7 +83,7 @@ help:
 	@echo "Code quality:"
 	@echo "  make format             prettier --write across the workspace"
 	@echo "  make format-check       prettier --check (CI gate)"
-	@echo "  make lint               eslint across both apps"
+	@echo "  make lint               format-check + typecheck (the gates CI runs)"
 	@echo "  make typecheck          tsc --noEmit across both apps"
 	@echo "  make test               vitest across both apps"
 	@echo "  make build              production bundle (tsc for server, tsc + vite build for web)"
@@ -154,7 +154,13 @@ format-check:
 	$(PNPM) format:check
 
 lint:
-	$(PNPM) lint
+	@# ESLint isn't installed in this workspace — the per-package
+	@# `lint` scripts call `eslint src` but the dep was never added,
+	@# and CI doesn't gate on it either. Run the gates that actually
+	@# exist (format + types) so `make lint` still does something
+	@# useful for an operator's pre-push check.
+	@$(MAKE) format-check
+	@$(MAKE) typecheck
 
 typecheck:
 	$(PNPM) typecheck
