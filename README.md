@@ -49,15 +49,24 @@ mismatch you'd hit through `host.docker.internal`.
 
 ## Updating
 
-`make update` pulls the latest, rebuilds the server and web images,
-and recreates the containers in place — never tears the stack down.
-There's no database: the Console keeps state in a small SQLite for
-diagnostics and a JSON file for runtime overrides, both inside a
-named volume, so an update is just a rebuild. On hosts marked
-`EVEYS_ENV=production` it asks for confirmation; `FORCE_PROD=1`
-skips the prompt. `NO_PULL=1` skips the `git pull`; `SERVER_ONLY=1`
-or `WEB_ONLY=1` narrow the scope. Under the hood it runs
-`scripts/updater.sh`.
+`make update` runs the full quality chain before it touches docker —
+`make format` (auto-fixes prettier drift) → `make build` (the CI
+gate: format-check → typecheck → test → tsc + vite build) →
+`scripts/updater.sh` (pull → docker rebuild → server-init chown →
+recreate in place → poll `/api/healthz`). Any gate failure aborts
+before docker is touched, so a broken local tree can't ship. The
+script never tears the stack down, so it's safe on a live host.
+
+There's no database to migrate: the Console keeps state in a small
+SQLite for diagnostics and a JSON file for runtime overrides, both
+inside a named volume, so an update is just a rebuild.
+
+Knobs: `NO_PULL=1` skips the `git pull`; `SERVER_ONLY=1` or
+`WEB_ONLY=1` narrow the docker recreate; `SKIP_GATES=1` is the
+emergency escape when you're rolling a known-good bundle and don't
+want to wait for the gates. On hosts marked `EVEYS_ENV=production`
+the updater asks for confirmation before recreating containers;
+`FORCE_PROD=1` skips the prompt.
 
 Updating the gateway is a separate operation that lives in the
 [gateway repo](https://github.com/eveys-mobility/OCPP) (`make update`
@@ -149,10 +158,11 @@ remembering filter flags.
 
 **Setup**
 
-| Target               | What it does                                                                             |
-| -------------------- | ---------------------------------------------------------------------------------------- |
-| `make install`       | Run `pnpm install` and regenerate `packages/api-types/` from the gateway's OpenAPI spec. |
-| `make gen-api-types` | Just the regenerate step. Re-run after the gateway publishes a new spec.                 |
+| Target                | What it does                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make install`        | `pnpm install` → regenerate `packages/api-types/` from the gateway's OpenAPI spec → build the workspace packages (`api-types` + `protocol`). |
+| `make gen-api-types`  | Just the regenerate step. Re-run after the gateway publishes a new spec.                                                                     |
+| `make build-packages` | Build the workspace packages (`api-types` + `protocol`) so `apps/web` can resolve them through vite.                                         |
 
 **Day-to-day**
 
@@ -164,31 +174,37 @@ remembering filter flags.
 
 **Code quality**
 
-| Target                              | What it does                                                                |
-| ----------------------------------- | --------------------------------------------------------------------------- |
-| `make format` / `make format-check` | Prettier across the workspace, write or check.                              |
-| `make lint`                         | ESLint across both apps.                                                    |
-| `make typecheck`                    | `tsc --noEmit` across both apps.                                            |
-| `make test`                         | Vitest across both apps.                                                    |
-| `make build`                        | Production bundle — `tsc` for the server, `tsc` + `vite build` for the web. |
+| Target                              | What it does                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `make format` / `make format-check` | Prettier across the workspace, write or check.                                                                                    |
+| `make lint`                         | `format-check + typecheck` — the gates CI actually runs. (ESLint isn't installed in this workspace.)                              |
+| `make typecheck`                    | `tsc --noEmit` across both apps.                                                                                                  |
+| `make test`                         | Vitest across both apps.                                                                                                          |
+| `make build`                        | **Full CI gate**: `format-check → typecheck → test → tsc + vite build`. Any earlier failure aborts before the bundle is produced. |
 
 **Local stack (Docker)**
 
-| Target                                  | What it does                                                                                     |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `make compose-up`                       | Build and recreate `server` + `web`; forwards `apps/server/.env` to the compose interpolation.   |
-| `make compose-status`                   | Container health.                                                                                |
-| `make compose-logs`                     | Tail server + web logs.                                                                          |
-| `make compose-down`                     | Stop containers, keep the named volume. _(production-gated)_                                     |
-| `make compose-down-volumes`             | Stop **and wipe** the `console-data` volume. _(production-gated, asks for confirmation)_         |
-| `make build-images`                     | Build the images without recreating.                                                             |
-| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. _(grafana-down is production-gated)_ |
+The gateway must be running first — the Console's compose file declares
+`eveys-ocpp_default` as an external network so the server can reach the
+gateway's Kafka over the internal listener. Bring it up with
+`make compose-up` in [the gateway repo](https://github.com/eveys-mobility/OCPP)
+before anything below.
+
+| Target                                  | What it does                                                                                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make compose-up`                       | Build → server-init chown → recreate `server` + `web` → poll `/api/healthz`. Delegates to `scripts/updater.sh --no-pull` so the env translation is applied. |
+| `make compose-status`                   | Container health.                                                                                                                                           |
+| `make compose-logs`                     | Tail server + web logs.                                                                                                                                     |
+| `make compose-down`                     | Stop containers, keep the named volume. _(production-gated)_                                                                                                |
+| `make compose-down-volumes`             | Stop **and wipe** the `console-data` volume. _(production-gated, asks for confirmation)_                                                                    |
+| `make build-images`                     | Build the images without recreating.                                                                                                                        |
+| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. _(grafana-down is production-gated)_                                                            |
 
 **Deployment**
 
-| Target        | What it does                                                                                                                                                                             |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make update` | One-shot rebuild → recreate → poll `/api/healthz`. Never tears the stack down. `NO_PULL=1` skips `git pull`; `SERVER_ONLY=1` / `WEB_ONLY=1` scope it. Delegates to `scripts/updater.sh`. |
+| Target        | What it does                                                                                                                                                                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make update` | `format` (auto-fix) → `build` (the full CI gate above) → `scripts/updater.sh`. Any failure in the gates aborts before docker is touched. `NO_PULL=1` skips `git pull`; `SERVER_ONLY=1` / `WEB_ONLY=1` scope the docker recreate; `SKIP_GATES=1` is the emergency escape (rollback known-good bundle). |
 
 **Cleanup**
 
