@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
 import { TxOcppFramesPanel } from '@/components/TxOcppFramesPanel';
+import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
 import { formatUptime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 
@@ -83,6 +84,29 @@ export function TransactionDetailPage() {
       }),
     enabled,
     refetchInterval: tx?.open ? OPEN_TX_REFETCH_MS : false,
+  });
+
+  // Live-refresh the two curves the moment a MeterValues arrives.
+  // Polling stays as a safety net (best-effort Kafka tail), so the
+  // 5 s cadence remains the floor; this just makes the common case
+  // feel live during an active session. Refetch is no-op while the
+  // tx is closed (queryKey changes — `to` becomes the fixed
+  // `stopped_at`).
+  const meterQueryKeys = useMemo(
+    () =>
+      tx?.cp_id
+        ? [
+            ['meter-values', tx.cp_id, txId, POWER_MEASURAND],
+            ['meter-values', tx.cp_id, txId, ENERGY_MEASURAND],
+            ['transaction', txId],
+          ]
+        : [],
+    [tx?.cp_id, txId],
+  );
+  useInvalidateOnCpEvents({
+    cpId: tx?.cp_id ?? '',
+    queryKeys: meterQueryKeys,
+    kinds: ['meter', 'tx-stopped'],
   });
 
   if (!Number.isInteger(txId) || txId <= 0) {

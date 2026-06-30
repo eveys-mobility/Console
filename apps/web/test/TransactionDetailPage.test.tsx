@@ -17,7 +17,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ws-context', () => ({
   useConsoleClient: () => ({
-    client: { rpc: vi.fn(), subscribe: vi.fn(), close: vi.fn(), connect: vi.fn() },
+    client: {
+      rpc: vi.fn(),
+      // The page wires `useInvalidateOnCpEvents` to refresh meter-value
+      // queries when a `cp.meter` event arrives. The hook calls
+      // `client.subscribe(...).then(...)` — return a resolved handle so
+      // the polling-only tests don't crash on the WS path they don't
+      // exercise.
+      subscribe: vi.fn(() => Promise.resolve({ unsubscribe: () => undefined })),
+      close: vi.fn(),
+      connect: vi.fn(),
+    },
     status: 'open',
     token: 'test-token',
     setToken: vi.fn(),

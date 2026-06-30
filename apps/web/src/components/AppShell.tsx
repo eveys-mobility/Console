@@ -12,6 +12,7 @@ import {
   Search as SearchIcon,
   Settings,
   ShieldCheck,
+  Sliders,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -247,6 +248,12 @@ function NavContents({ path }: { path: string }) {
           label="Authorizations"
           icon={<ShieldCheck className="h-4 w-4" />}
           active={path.startsWith('/sys/authorizations')}
+        />
+        <NavItem
+          to="/sys/ocpp-config"
+          label="OCPP config"
+          icon={<Sliders className="h-4 w-4" />}
+          active={path.startsWith('/sys/ocpp-config')}
         />
       </NavSection>
 

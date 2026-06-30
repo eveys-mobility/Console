@@ -11,6 +11,15 @@ WORKDIR /repo
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
+# node-gyp build prerequisites — the workspace install pulls in
+# `better-sqlite3` from the server package even though the web bundle
+# never touches it, and node-gyp needs python3 + a C++ toolchain to
+# compile when no prebuild matches the target arch. Without these the
+# install step fails with "gyp ERR! not ok" on better-sqlite3.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/server/package.json ./apps/server/
 COPY apps/web/package.json ./apps/web/

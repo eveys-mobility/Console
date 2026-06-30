@@ -19,6 +19,7 @@ import {
   type FleetEventsSearch,
 } from './pages/FleetEventsPage';
 import { FleetPage } from './pages/FleetPage';
+import { OcppConfigPage } from './pages/OcppConfigPage';
 import { OcppConformancePage } from './pages/OcppConformancePage';
 import { SystemConfigPage } from './pages/SystemConfigPage';
 import { SystemPage } from './pages/SystemPage';
@@ -107,6 +108,12 @@ const ocppConformanceRoute = createRoute({
   component: OcppConformancePage,
 });
 
+const ocppConfigRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sys/ocpp-config',
+  component: OcppConfigPage,
+});
+
 const authorizationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sys/authorizations',
@@ -146,6 +153,7 @@ export const routeTree = rootRoute.addChildren([
   transactionDetailRoute,
   analyticsRoute,
   sysConfigRoute,
+  ocppConfigRoute,
   ocppConformanceRoute,
   authorizationsRoute,
 ]);

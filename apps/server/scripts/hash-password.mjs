@@ -23,6 +23,11 @@ for await (const line of rl) {
   password += line;
   break;
 }
+// Close the readline interface explicitly. Without this the open stdin
+// keeps the event loop alive after we've finished writing, so the
+// process hangs at the shell prompt even though all the useful work
+// is done.
+rl.close();
 
 if (!password) {
   process.stderr.write('No password read from stdin.\n');
@@ -31,3 +36,4 @@ if (!password) {
 
 const result = await hash(password, 10);
 process.stdout.write(result + '\n');
+process.exit(0);

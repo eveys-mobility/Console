@@ -1,272 +1,233 @@
-# Console
+# eveys-console
 
 [![CI](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml/badge.svg)](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-System-administration console for the OCPP gateway. Sign-in protected,
-single WebSocket per tab, live snapshot+tail subscriptions backed by
-the gateway's existing Kafka topics and REST API.
+Sign-in protected operator console for the
+[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway.
+React + shadcn/ui + TanStack Router on the front end; Fastify with
+one WebSocket per tab carrying snapshot + tail subscriptions on the
+server. Bcrypt'd username/password with a client-side proof-of-work
+CAPTCHA; short-lived JWTs after that.
 
-The console targets SRE / on-call engineers operating the gateway —
-not end-customer fleet managers. The front page (`/`) is an operator
-dashboard: alerts summary, headline metrics (chargers online, active
-sessions, faults), service status. Charge-point and transaction
-inspection live under `/inspect`; alerts management lives under
-`/sys/alerts`; configuration under `/sys/config`.
+---
 
-The gateway is consumed unchanged; everything the console offers is
-built on the gateway's existing surfaces.
+## Quickstart
 
-Apache-2.0.
-
-## Surfaces
-
-| Surface        | Bind                                | Direction         | Purpose                                                                                   |
-| -------------- | ----------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
-| WebSocket      | `:8090/ws`                          | browser → Console | Subscriptions + RPCs in one connection. Subprotocol: `eveys-console-v1` + `bearer.<jwt>`. |
-| REST (auth)    | `:8090/auth/{challenge,login}`      | browser → Console | Proof-of-work CAPTCHA + username/password login. Returns a short-lived JWT.               |
-| REST (status)  | `:8090/sys/status`                  | browser → Console | Aggregated service health (gateway probe + Kafka + WS connection count). JWT-protected.   |
-| REST (alerts)  | `:8090/sys/alerts/*`                | browser → Console | Firing alerts + silences + channels + rules. Proxies Alertmanager/Prometheus. JWT-gated.  |
-| REST (config)  | `:8090/sys/{config,gateway-config}` | browser → Console | Read-only config introspection; Console + Gateway tabs.                                   |
-| REST (admin)   | `:8090/sys/admin/console-config`    | browser → Console | Runtime overrides on allowlisted Console keys (Channels-style; persisted to disk).        |
-| REST (diag)    | `:8090/sys/diagnostics/*`           | browser → Console | Console-minted upload URLs for `GetDiagnostics` / `GetLog` artefacts.                     |
-| REST (metrics) | `:8090/metrics`                     | Prometheus        | Prometheus scrape endpoint. Unauthenticated (network-ACL'd in prod).                      |
-| Health         | `:8090/healthz`, `:8090/readyz`     | k8s → Console     | Liveness / readiness probes. Unauthenticated.                                             |
-| Web            | `:5180` (dev)                       | browser           | React + shadcn/ui (Tailwind + Radix) + TanStack Router.                                   |
-
-## Pages
-
-| Path                           | What                                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `/`                            | Operator dashboard — alerts summary, metrics, service status.                                             |
-| `/inspect/charge-points`       | Fleet view; per-charger AC/DC + power-rating chips, faults filter via `?faults=1`.                        |
-| `/inspect/charge-points/$cpId` | Charger detail — connectors, statistics, transactions, diagnostics, device events.                        |
-| `/inspect/transactions`        | Active + recent transactions across the fleet.                                                            |
-| `/inspect/transactions/$txId`  | Per-transaction detail with kW-per-phase + cumulative-kWh charts.                                         |
-| `/sys/alerts?tab=firing`       | Alertmanager-backed firing alerts. Silence button per row.                                                |
-| `/sys/alerts?tab=silences`     | Active + pending silences. Expire-now per row.                                                            |
-| `/sys/alerts?tab=channels`     | Slack / email / webhook receivers. Add / edit / test / set-default. Console writes Alertmanager's config. |
-| `/sys/alerts?tab=rules`        | Read-only display of Prometheus's loaded rules, plus inline CRUD for the `console-managed` rule group.    |
-| `/sys/config?tab=console`      | Console keys, with inline edit on the allowlist. Overrides persist to `data/console-overrides.json`.      |
-| `/sys/config?tab=gateway`      | Gateway keys. Categories collapsible, sorted by mutability. Active-overrides pinned at the top.           |
-
-## Repo layout
-
-```
-apps/
-├── server/                       Node + Fastify + ws + kafkajs Console server
-│   ├── proto/events/v1/          vendored gateway event schema
-│   ├── scripts/                  mint-dev-token, hash-password
-│   └── src/
-│       ├── auth/                 JWT verification, PoW CAPTCHA, user store (bcrypt)
-│       ├── broker/               per-connection subscription state, query resolvers
-│       ├── kafka/                Kafka tail + protobuf event-envelope decoder
-│       ├── metrics/              Prometheus registry + per-route instrumentation
-│       ├── rest/                 typed client to the gateway's /api/v1
-│       ├── routes/               auth, ws, sys-status, sys-alerts, sys-config, …
-│       ├── store/                channels-store, rules-store, override-store, diagnostics-store
-│       └── main.ts               process entry — wires the components
-└── web/                          React + shadcn/ui console
-    └── src/
-        ├── api/                  typed clients (auth, sys, alerts, config, ws)
-        ├── components/           AppShell, AlertsPanel, ChannelsPanel, RulesPanel, ConfigView, …
-        ├── hooks/                useSubscription, useFiringAlerts, useSilences, useChannels, …
-        ├── lib/                  WS context, theme context, alerts derivation, charger-spec
-        ├── pages/                LoginPage, SystemPage, FleetPage, ChargerDetailPage, AlertsPage, SystemConfigPage, …
-        └── routeTree.ts          manual TanStack route tree
-
-packages/
-├── protocol/                     shared WS envelope contract (zod schemas + TS types)
-└── api-types/                    types generated from the gateway's OpenAPI spec
-
-deploy/
-├── docker-compose.yml            server + web + (optional) prometheus + alertmanager
-└── observability/                bundled prometheus.yml, alertmanager.yml, alerts.yml seed
-```
-
-## Quick start
-
-Prereqs: Node ≥ 20.10, `pnpm` 9.15 (`corepack prepare pnpm@9.15.0 --activate`),
-Docker, and the OCPP gateway running locally on `:8080` with REST + Kafka up.
+The Console expects the OCPP gateway to be reachable already — see
+the [gateway quickstart](https://github.com/eveys-mobility/OCPP#quickstart)
+for that side. Once it's running:
 
 ```bash
-pnpm install
-pnpm gen:api-types
+corepack prepare pnpm@9.15.0 --activate     # Node 20+, pnpm 9.15
+
+git clone git@github.com:eveys-mobility/Console.git eveys-console
+cd eveys-console
+
 cp apps/server/.env.example apps/server/.env
-cp apps/web/.env.example apps/web/.env
-# edit apps/server/.env: set JWT_SECRET, GATEWAY_TOKEN, KAFKA_BROKERS,
-# CONSOLE_USERS (one or more username:bcrypthash pairs).
-# Optional: set ALERTMANAGER_URL + PROMETHEUS_URL to light up /sys/alerts.
+cp apps/web/.env.example    apps/web/.env
+# Edit apps/server/.env: at minimum set JWT_SECRET, GATEWAY_TOKEN
+# (matching the gateway's REST_INBOUND_TOKENS), KAFKA_BROKERS, and
+# the CONSOLE_USERNAME / CONSOLE_PASSWORD pair.
 
-# Hash a password for CONSOLE_USERS:
-echo -n "yourPassword" | pnpm --filter @eveys-console/server hash-password
-
-pnpm dev
+make install            # pnpm install + regenerate api-types
+make dev                # apps/server + apps/web in watch mode
 ```
 
-Server on `http://localhost:8090`, web on `http://localhost:5180`. Open
-the web URL, sign in with the username/password you put in
-`CONSOLE_USERS`. The login form runs a small client-side proof-of-work
-CAPTCHA before submitting (~50 ms in a real browser).
+The web app opens on `http://localhost:5180`; the Fastify server lives
+on `http://localhost:8090`. Sign in with the credentials you put in
+the `.env`. The login form runs a small proof-of-work before
+submitting — about 50 ms of CPU in a real browser, enough to make
+credential-stuffing unattractive without bothering the operator.
 
-The `mint-token` script (`pnpm --filter @eveys-console/server mint-token`)
-is also kept as a dev-only fallback for headless tests.
+If you'd rather run everything in Docker, `make compose-up` builds
+the images and brings the containers up; `make compose-status` and
+`make compose-logs` follow from there. The compose file declares the
+gateway's network as an external dependency, so the server reaches
+Kafka via the internal listener without the advertised-listener
+mismatch you'd hit through `host.docker.internal`.
 
-### Docker
+## Updating
 
-Two images. The server is distroless Node 20 (with `promtool` bundled
-in for rule validation); the web is nginx serving the static SPA bundle.
-Compose ties them together:
+`make update` runs the full quality chain before it touches docker —
+`make format` (auto-fixes prettier drift) → `make build` (the CI
+gate: format-check → typecheck → test → tsc + vite build) →
+`scripts/updater.sh` (pull → docker rebuild → server-init chown →
+recreate in place → poll `/api/healthz`). Any gate failure aborts
+before docker is touched, so a broken local tree can't ship. The
+script never tears the stack down, so it's safe on a live host.
 
-```bash
-# Set required env (see deploy/docker-compose.yml for all the keys
-# the server reads). At minimum:
-export JWT_SECRET=$(openssl rand -base64 32)
-export GATEWAY_BASE_URL=http://gateway-host:8080
-export GATEWAY_TOKEN=...
-export KAFKA_BROKERS=kafka-host:9092
+There's no database to migrate: the Console keeps state in a small
+SQLite for diagnostics and a JSON file for runtime overrides, both
+inside a named volume, so an update is just a rebuild.
 
-docker compose -f deploy/docker-compose.yml up -d --build
-```
+Knobs: `NO_PULL=1` skips the `git pull`; `SERVER_ONLY=1` or
+`WEB_ONLY=1` narrow the docker recreate; `SKIP_GATES=1` is the
+emergency escape when you're rolling a known-good bundle and don't
+want to wait for the gates. On hosts marked `EVEYS_ENV=production`
+the updater asks for confirmation before recreating containers;
+`FORCE_PROD=1` skips the prompt.
 
-Server on `:8090`, web on `:5180`.
+Updating the gateway is a separate operation that lives in the
+[gateway repo](https://github.com/eveys-mobility/OCPP) (`make update`
+there).
 
-### Observability
+## What's where
 
-Compose ships an optional Prometheus + Alertmanager pair behind an
-`observability` profile so the default `up` stays lean. Bring them up
-with:
+The operator dashboard at `/` is the landing page — a summary of
+firing alerts, headline metrics (chargers online, sessions in
+flight, faults), and service status. Everything else is reachable
+from the sidebar:
 
-```bash
-docker compose -f deploy/docker-compose.yml --profile observability up -d
-```
+- **`/inspect/charge-points`** lists the fleet with AC/DC + power
+  chips and a faults filter. Each row links to a per-charger detail
+  page that shows connector state, active and recent sessions,
+  diagnostics history, and a live device-event feed.
+- **`/inspect/transactions`** is the cross-fleet session view with
+  date and stop-reason filters. Click into a transaction for a live
+  detail page — kW per phase and cumulative kWh charts that refresh
+  the moment a MeterValues arrives.
+- **`/sys/alerts`** is the operator's view of Prometheus and
+  Alertmanager: firing alerts, active silences, channels for Slack /
+  email / webhook receivers, and inline CRUD for a Console-managed
+  rule group with `promtool check rules` running before every save.
+- **`/sys/authorizations`** is the operator-driven charger
+  allowlist. Pending registrations bubble up here for approval before
+  a new charger is accepted into the fleet.
+- **`/sys/ocpp-config`** lets the operator tune the keys the
+  gateway pushes via ChangeConfiguration after every Accepted
+  BootNotification — heartbeat interval, connection timeout, the
+  transaction retry knobs. Edits apply on the next boot of each
+  charger; no gateway restart is needed.
+- **`/sys/config`** is two tabs of runtime overrides — one for the
+  Console's own keys (persisted to disk), one for the gateway's
+  per-pod override map (cleared on gateway restart).
 
-Prometheus on `:9091`, Alertmanager on `:9093`. The starter scrape
-config targets the Console at `server:8090/metrics` and the gateway at
-`host.docker.internal:9100/metrics`.
+The realtime layer is a single WebSocket per tab. The browser
+subscribes to one or more named queries (`charge-points`,
+`transactions-active`, `meter-history`, etc.) and gets back a
+snapshot followed by deltas; the server fans the gateway's Kafka
+topics into deltas and re-fetches REST rows when a topic event
+mutates them.
 
-`/sys/alerts` is the operator surface for both. Four tabs:
+## Configuration
 
-- **Firing** — what Alertmanager is firing right now. 30 s poll.
-  Silence button per row.
-- **Silences** — active + pending silences with matchers, comment,
-  creator, remaining duration. Expire-now per row.
-- **Channels** — manage Alertmanager receivers (Slack / email /
-  webhook). Add, edit, remove, send a test alert, switch the default.
-  The Console writes `data/alertmanager-managed.yml` and reloads
-  Alertmanager — Channels are persisted, not per-pod ephemeral.
-- **Rules** — read-only display of loaded Prometheus rule groups, with
-  inline CRUD for the `console-managed` group. `promtool check rules`
-  runs before every write so a malformed expression can't break
-  Prometheus on reload.
+The server reads its configuration from `apps/server/.env`. The
+example file (`apps/server/.env.example`) covers the values most
+operators need to touch — JWT secret, gateway token and base URL,
+Kafka brokers, login credentials, optional Alertmanager and
+Prometheus URLs. The web side (`apps/web/.env`) only matters when
+the Console server is on a different host than the web app — by
+default the client builds its URLs from `window.location`.
 
-Without the observability profile (or with `ALERTMANAGER_URL` /
-`PROMETHEUS_URL` unset), each tab renders a "not configured" hint
-instead of erroring.
+Inside the running process, a smaller set of keys are flippable
+without a restart. The Configuration page surfaces both, with
+inline editors for the allowlisted ones and a "Reset to env" button
+for any overrides in effect.
 
-### Runtime configuration
+## Repository layout
 
-The Configuration page (`/sys/config`) reads from the live process and
-edits flow through one of two override stores:
+The repo is a pnpm workspace:
 
-- **Console keys** → `data/console-overrides.json` (persisted across
-  restarts). Allowlisted in `apps/server/src/store/override-store.ts`;
-  bind-time keys like `HOST`/`PORT`, secrets like `JWT_SECRET`, and
-  consumer-state keys like `KAFKA_*` are deliberately excluded.
-- **Gateway keys** → the gateway's per-pod in-memory override map
-  (ephemeral; cleared on restart). The Console proxies through
-  `/sys/gateway-admin-config`.
+- `apps/server/` is the Fastify server — authentication, REST proxies
+  to the gateway, the WebSocket broker, the Kafka tail, Prometheus
+  metrics.
+- `apps/web/` is the SPA — React, shadcn/ui, TanStack Router and
+  Query, Recharts for the live charts.
+- `packages/protocol/` is the WebSocket envelope contract — zod
+  schemas shared by both apps so the wire shape is enforced on both
+  ends.
+- `packages/api-types/` is generated from the gateway's OpenAPI spec,
+  so REST callers stay typed.
+- `deploy/` carries the production-shaped Dockerfiles plus the
+  observability bundle (Prometheus + Alertmanager) that comes up
+  behind a profile flag.
 
-Each tab surfaces an "Active overrides" section at the top when any
-override is in effect, plus a "Reset to env" button on every overridden
-row.
+## Make targets
 
-## Realtime model
+The verbs you'll actually reach for, grouped by when. `make help`
+prints the live list. Each one wraps the matching `pnpm` command or
+`docker compose` invocation so the day-to-day flow doesn't depend on
+remembering filter flags.
 
-Each browser tab opens one WebSocket. Inside that connection it can:
+**Environment**
 
-- **subscribe** to a named query (`charge-points`, `charge-point`,
-  `transactions-active`, `meter-history`, `status-history`,
-  `device-events`). The server returns a snapshot, then a stream of
-  deltas. A single Kafka event can fan out to multiple deltas (e.g.
-  one MeterValues report carries N samples → N appends; one
-  StatusNotification produces one `device-events` row plus one
-  `status-history` row).
-- **unsubscribe** when the component unmounts.
-- **rpc** to issue OCPP commands (`remote-start`, `remote-stop`,
-  `reset`); the server forwards to the gateway's REST and relays the
-  response back over the same WebSocket.
+| Target        | What it does                                                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `make doctor` | Check local-dev tools (Node 20+, pnpm 9.15, Docker, …) against minimum versions. Run this first if anything else complains. |
 
-The wire format is defined in `packages/protocol/`. zod schemas
-validate every message in both directions; both apps import the same
-schemas so the contract is enforced symmetrically.
+**Setup**
 
-Snapshot+tail consistency is **read-after-write with dedup**: the
-client keys collection rows by primary ID so the small window between
-the snapshot fetch and the first delta is harmless. The FleetPage
-reduces snapshot + latest delta into a `Map<cp_id, row>` on every
-render.
+| Target                | What it does                                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make install`        | `pnpm install` → regenerate `packages/api-types/` from the gateway's OpenAPI spec → build the workspace packages (`api-types` + `protocol`). |
+| `make gen-api-types`  | Just the regenerate step. Re-run after the gateway publishes a new spec.                                                                     |
+| `make build-packages` | Build the workspace packages (`api-types` + `protocol`) so `apps/web` can resolve them through vite.                                         |
 
-Wire payloads from Kafka are protobuf-encoded `EventEnvelope`s (the
-gateway's own schema, vendored at `apps/server/proto/events/v1/`).
-The decoder lives in `apps/server/src/kafka/event-decoder.ts`.
+**Day-to-day**
 
-Per-transaction detail (`/inspect/transactions/$txId`) is REST-polled
-rather than WS-subscribed: the WS broker only carries the active-tx
-list query, and an operator opening one session detail isn't watching
-it for hours. The page calls the Console's `/sys/transactions/:txId`
-and `/sys/charge-points/:cpId/meter-values` proxies (server-side
-forwarders to the gateway), then renders kW-per-phase and cumulative
-kWh charts using Recharts. Open sessions refetch every 5 s; closed
-sessions render a fixed window.
+| Target               | What it does                                                                        |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| `make dev`           | Run `apps/server` and `apps/web` in watch mode (server on `:8090`, web on `:5180`). |
+| `make mint-token`    | Print a dev JWT for headless testing without going through the login form.          |
+| `make hash-password` | Bcrypt a password for `CONSOLE_USERS`.                                              |
 
-Firing alerts + silences + channels + rules are also REST-polled
-through the Console (30 s) rather than WS-subscribed — they change on
-the order of minutes, not seconds, and the broker isn't the right
-place for per-tab control-plane data.
+**Code quality**
 
-## Diagnostics uploads
+| Target                              | What it does                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `make format` / `make format-check` | Prettier across the workspace, write or check.                                                                                    |
+| `make lint`                         | `format-check + typecheck` — the gates CI actually runs. (ESLint isn't installed in this workspace.)                              |
+| `make typecheck`                    | `tsc --noEmit` across both apps.                                                                                                  |
+| `make test`                         | Vitest across both apps.                                                                                                          |
+| `make build`                        | **Full CI gate**: `format-check → typecheck → test → tsc + vite build`. Any earlier failure aborts before the bundle is produced. |
 
-OCPP `GetDiagnostics` and `GetLog` ask the charger to PUT its log file to a
-URL the operator supplies. Today the operator can either type any URL
-(legacy path; kept) or have the Console mint a one-shot URL bound to the
-command. When the latter is checked in the GetDiagnostics / GetLog form,
-the form first calls `POST /sys/diagnostics/issue` to mint a 32-byte token
-embedded in `…/uploads/diag/<token>`, then sends the OCPP command with that
-URL. The charger PUTs (or POSTs) the file back; the Console writes it to
-`data/uploads/<cp_id>/<request_id>` and records token, timestamps, byte
-count and SHA-256 in a SQLite metadata table at `data/console.sqlite`.
+**Local stack (Docker)**
 
-The artefact appears under the device page's **Diagnostics history**
-card within one 5-second poll. From there, downloads stream back through
-the Console; delete drops the row and the file.
+The gateway must be running first — the Console's compose file declares
+`eveys-ocpp_default` as an external network so the server can reach the
+gateway's Kafka over the internal listener. Bring it up with
+`make compose-up` in [the gateway repo](https://github.com/eveys-mobility/OCPP)
+before anything below.
 
-Token rules: 32 random bytes (64 hex chars), one-shot, default TTL 1 hour
-(`DIAGNOSTICS_UPLOAD_TTL_SECONDS`). Pending tokens past their `expires_at`
-are rolled to `expired` lazily on every issue and upload — no cron needed.
-Body cap defaults to 50 MB (`DIAGNOSTICS_MAX_UPLOAD_BYTES`); enforced
-per-route, so other routes are unaffected.
+| Target                                  | What it does                                                                                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make compose-up`                       | Build → server-init chown → recreate `server` + `web` → poll `/api/healthz`. Delegates to `scripts/updater.sh --no-pull` so the env translation is applied. |
+| `make compose-status`                   | Container health.                                                                                                                                           |
+| `make compose-logs`                     | Tail server + web logs.                                                                                                                                     |
+| `make compose-down`                     | Stop containers, keep the named volume. _(production-gated)_                                                                                                |
+| `make compose-down-volumes`             | Stop **and wipe** the `console-data` volume. _(production-gated, asks for confirmation)_                                                                    |
+| `make build-images`                     | Build the images without recreating.                                                                                                                        |
+| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. _(grafana-down is production-gated)_                                                            |
 
-Reachability is dev-only today: chargers reach the Console via the same
-host:port the operator's browser does, so this works on a laptop or
-inside a docker-compose network. Production ingress (TLS, public DNS,
-multi-pod fan-in, object storage) is a separate iteration.
+**Deployment**
 
-## Build, test, ship
+| Target        | What it does                                                                                                                                                                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make update` | `format` (auto-fix) → `build` (the full CI gate above) → `scripts/updater.sh`. Any failure in the gates aborts before docker is touched. `NO_PULL=1` skips `git pull`; `SERVER_ONLY=1` / `WEB_ONLY=1` scope the docker recreate; `SKIP_GATES=1` is the emergency escape (rollback known-good bundle). |
 
-```bash
-pnpm format        # prettier
-pnpm typecheck     # tsc --noEmit across all packages
-pnpm test          # vitest, all packages (~600 tests)
-pnpm build         # tsc + vite build, both apps
-```
+**Cleanup**
 
-CI runs `format:check + typecheck + test + build` on every PR, plus a
-`validate-observability` job that runs `promtool check config` /
-`check rules` and `amtool check-config` against the bundled
+| Target           | What it does                                                             |
+| ---------------- | ------------------------------------------------------------------------ |
+| `make clean`     | Drop `dist/`, `.turbo`, Vite caches. Keeps `node_modules`.               |
+| `make distclean` | `clean` + drop `node_modules` across the workspace. _(production-gated)_ |
+
+### Production safety
+
+Set `EVEYS_ENV=production` in the shell or in `.env`, and `compose-down`,
+`compose-down-volumes`, `grafana-down`, and `distclean` refuse to run
+unless `FORCE_PROD=1` is passed on the same command line. The override
+is per-invocation by design — it can't quietly stay on.
+
+CI runs `format-check + typecheck + test + build` on every PR plus a
+`promtool check` and `amtool check-config` against the bundled
 `deploy/observability/` files.
 
-## License
+## Contributing and license
 
-Apache-2.0. See [`LICENSE`](./LICENSE) for the licence text and
-[`NOTICE`](./NOTICE) for attribution and trademark notices.
+Issues and PRs are welcome. Run `pnpm format` and `pnpm typecheck`
+before pushing.
+
+Released under the Apache License, Version 2.0 —
+[`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE).
