@@ -3,10 +3,18 @@
 [![CI](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml/badge.svg)](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-System-administration console for the [OCPP gateway](https://github.com/eveys-mobility/OCPP).
+System-administration console for the
+[**eveys-mobility/OCPP**](https://github.com/eveys-mobility/OCPP)
+gateway — the standalone Python service that terminates charger
+WebSockets, validates and dispatches OCPP-J 1.6 / 2.0.1 messages,
+and exposes a backend-facing contract over REST, gRPC, Kafka, and
+webhooks. The Console is a **consumer of the gateway**; everything
+this app shows (fleet status, transactions, MeterValues charts,
+alerts, OCPP-config matrix) is rendered from the gateway's existing
+surfaces.
+
 Sign-in protected, single WebSocket per tab, live snapshot+tail
-subscriptions backed by the gateway's existing Kafka topics and REST
-API.
+subscriptions backed by the gateway's Kafka topics and REST API.
 
 Targets SRE / on-call engineers running the gateway — not end-customer
 fleet managers. Apache-2.0.

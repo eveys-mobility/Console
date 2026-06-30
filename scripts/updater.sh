@@ -73,11 +73,69 @@ dc() {
   local env_args=()
   for f in "${REPO_ROOT}/.env" "${REPO_ROOT}/apps/server/.env"; do
     if [[ -f "${f}" ]]; then
-      env_args+=(--env-file "${f}")
+      env_args+=(--env-file "$(translate_env_for_docker "${f}")")
     fi
   done
   (cd "${REPO_ROOT}" && docker compose "${env_args[@]}" -f "${COMPOSE_FILE}" "$@")
 }
+
+# Take an operator-edited .env file (works with `pnpm dev` on the host)
+# and produce a temp copy in which `localhost` / `127.0.0.1` for the
+# gateway-facing endpoints is rewritten to the **internal** hostname
+# inside the gateway's docker network. The original .env is left
+# untouched.
+#
+#   KAFKA_BROKERS=localhost:9092            → kafka:29092
+#   GATEWAY_BASE_URL=http://localhost:8080  → http://eveys-ocpp:8080
+#
+# The compose file attaches `server` to `eveys-ocpp_default` (declared
+# external), so `kafka` and `eveys-ocpp` resolve directly. This bypasses
+# the advertised-listener mismatch (`KAFKA_ADVERTISED_LISTENERS=HOST://
+# localhost:9092` in the gateway compose) that traps any
+# `host.docker.internal:9092` consumer.
+#
+# Other host-loopback endpoints (ALERTMANAGER_URL, PROMETHEUS_URL) keep
+# the host-loopback rewrite for setups where those services run on
+# the host.
+TRANSLATED_ENV_FILES=()
+translate_env_for_docker() {
+  local src="$1"
+  if ! grep -qE '^(KAFKA_BROKERS|GATEWAY_BASE_URL|ALERTMANAGER_URL|PROMETHEUS_URL)=.*(localhost|127\.0\.0\.1)' "${src}" 2>/dev/null; then
+    printf '%s' "${src}"
+    return
+  fi
+  local dst
+  dst="$(mktemp -t console-updater-env.XXXXXX)"
+  TRANSLATED_ENV_FILES+=("${dst}")
+  # awk (not sed) — BSD sed on macOS chokes on the multi-substitute
+  # group syntax; awk's gsub inside a matching action is portable.
+  awk '
+    /^KAFKA_BROKERS=/ {
+      gsub(/localhost:9092/, "kafka:29092")
+      gsub(/127\.0\.0\.1:9092/, "kafka:29092")
+      gsub(/localhost/, "kafka")
+      gsub(/127\.0\.0\.1/, "kafka")
+    }
+    /^GATEWAY_BASE_URL=/ {
+      gsub(/localhost/, "eveys-ocpp")
+      gsub(/127\.0\.0\.1/, "eveys-ocpp")
+    }
+    /^(ALERTMANAGER_URL|PROMETHEUS_URL)=/ {
+      gsub(/localhost/, "host.docker.internal")
+      gsub(/127\.0\.0\.1/, "host.docker.internal")
+    }
+    { print }
+  ' "${src}" > "${dst}"
+  warn "$(basename "${src}"): localhost rewritten for the gateway docker network: KAFKA_BROKERS->kafka:29092, GATEWAY_BASE_URL->http://eveys-ocpp:8080 (your .env stays untouched for pnpm dev)."
+  printf '%s' "${dst}"
+}
+
+cleanup_translated_envs() {
+  for f in "${TRANSLATED_ENV_FILES[@]:-}"; do
+    [[ -n "${f}" && -f "${f}" ]] && rm -f "${f}"
+  done
+}
+trap cleanup_translated_envs EXIT
 
 # Read EVEYS_ENV from shell env, falling back to repo-root .env. Same
 # pattern the gateway Makefile uses for its production gate.
@@ -151,18 +209,18 @@ dc up -d --force-recreate "${services[@]}" \
   || fail "recreate failed"
 
 info "waiting for server health (best-effort, 30s)"
-# The server container exposes /healthz on :8090 inside the compose
-# network. From the host we hit the mapped port; the mapping lives in
-# the compose file and may have been remapped by the operator, so we
-# read it from `docker port` instead of hard-coding 8090.
+# The runtime image is distroless (no shell, no curl, no wget). The
+# only binary on PATH is node. Use it to call /api/healthz; this also
+# matches the path the compose healthcheck uses since the /api prefix
+# is applied to every HTTP route.
 if [[ "${DO_SERVER}" -eq 1 ]]; then
   server_id="$(dc ps -q server 2>/dev/null || true)"
   if [[ -n "${server_id}" ]]; then
     healthy=0
     for _ in $(seq 1 15); do
       if docker exec "${server_id}" \
-           sh -c 'wget -qO- http://127.0.0.1:8090/healthz >/dev/null 2>&1 \
-                  || curl -sf http://127.0.0.1:8090/healthz >/dev/null 2>&1'; then
+           /nodejs/bin/node -e "fetch('http://127.0.0.1:8090/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+           >/dev/null 2>&1; then
         healthy=1; break
       fi
       sleep 2
@@ -170,7 +228,7 @@ if [[ "${DO_SERVER}" -eq 1 ]]; then
     if [[ "${healthy}" -eq 1 ]]; then
       info "server reports healthy"
     else
-      warn "server did not report /healthz within 30s — check 'docker logs eveys-console-server'"
+      warn "server did not report /api/healthz within 30s — check 'docker logs eveys-console-server'"
     fi
   fi
 fi
