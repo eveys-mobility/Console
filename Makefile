@@ -47,12 +47,15 @@ COMPOSE_OBS := $(COMPOSE) --profile observability
 # surrounding quotes so a .env entry like `EVEYS_ENV="production"`
 # is honoured the same as `EVEYS_ENV=production`.
 EVEYS_ENV ?= $(shell sh -c '\
-	if [ -n "$$EVEYS_ENV" ]; then echo "$$EVEYS_ENV"; \
-	elif [ -f .env ]; then \
-	  grep -E "^[[:space:]]*EVEYS_ENV[[:space:]]*=" .env 2>/dev/null \
-	    | head -n1 | sed -E "s/^[[:space:]]*EVEYS_ENV[[:space:]]*=[[:space:]]*//" \
-	    | tr -d "\042\047" | tr -d "[:space:]"; \
-	fi')
+	if [ -n "$$EVEYS_ENV" ]; then echo "$$EVEYS_ENV"; exit 0; fi; \
+	for f in .env apps/server/.env; do \
+	  if [ -f "$$f" ]; then \
+	    v=$$(grep -E "^[[:space:]]*EVEYS_ENV[[:space:]]*=" "$$f" 2>/dev/null \
+	      | head -n1 | sed -E "s/^[[:space:]]*EVEYS_ENV[[:space:]]*=[[:space:]]*//" \
+	      | tr -d "\042\047" | tr -d "[:space:]"); \
+	    if [ -n "$$v" ]; then echo "$$v"; exit 0; fi; \
+	  fi; \
+	done')
 
 _require-nonprod:
 	@if [ "$(EVEYS_ENV)" = "production" ] && [ "$(FORCE_PROD)" != "1" ]; then \
