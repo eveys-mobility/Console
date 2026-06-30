@@ -41,10 +41,17 @@ COPY packages ./packages
 # directly. Behind a reverse proxy, that's wrong.
 ARG VITE_CONSOLE_BASE_URL
 ARG VITE_WS_URL
+# Content-digest cache buster set by scripts/updater.sh from the
+# operator's env files. ARG before the RUN means any change in the
+# digest invalidates this layer (and only this layer — the install
+# layer above is keyed on package.json/lockfile and the apt-get step
+# is keyed on the Dockerfile text, so neither rebuilds).
+ARG WEB_ENV_DIGEST
 ENV VITE_CONSOLE_BASE_URL=${VITE_CONSOLE_BASE_URL}
 ENV VITE_WS_URL=${VITE_WS_URL}
 
-RUN pnpm --filter @eveys-console/api-types run generate \
+RUN echo "web build digest: ${WEB_ENV_DIGEST}" \
+ && pnpm --filter @eveys-console/api-types run generate \
  && pnpm --filter @eveys-console/protocol run build \
  && pnpm --filter @eveys-console/web run build
 
