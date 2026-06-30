@@ -266,7 +266,7 @@ function PowerChart({ samples, loading }: { samples: MeterValueSample[]; loading
               type="monotone"
               dataKey="sum"
               name="sum"
-              stroke="#1A282F"
+              stroke="#F04E1F"
               strokeWidth={2}
               dot={false}
               connectNulls
@@ -391,7 +391,10 @@ function Field({ k, v }: { k: string; v: string }) {
 
 // ---- helpers --------------------------------------------------------------
 
-const LINE_COLOURS = ['#F04E1F', '#22C55E', '#3B82F6', '#A855F7'];
+// Per-phase line palette. Primary orange (#F04E1F) is reserved for
+// the aggregate `sum` line so it reads as the headline measurement;
+// phases get cool secondaries to keep the contrast.
+const LINE_COLOURS = ['#3B82F6', '#22C55E', '#A855F7', '#F59E0B'];
 
 interface PowerPoint {
   t: number;
