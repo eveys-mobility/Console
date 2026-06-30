@@ -90,19 +90,23 @@ recreating; pass `FORCE_PROD=1` to silence.
 | `/inspect/transactions/$txId` | Per-transaction detail with live kW + kWh charts |
 | `/sys/alerts` | Firing alerts, silences, channels, rules (Alertmanager + Prometheus) |
 | `/sys/authorizations` | Operator-driven charger allowlist (#0013) |
-| `/sys/ocpp-config` | Post-boot ChangeConfiguration matrix + per-charger AC/DC selector |
+| `/sys/ocpp-config` | Post-boot ChangeConfiguration matrix (type-agnostic keys) |
 | `/sys/config` | Console + Gateway runtime overrides |
 | `/sys/ocpp-conformance` | OCPP conformance matrix |
 
 ### OCPP config page (`/sys/ocpp-config`)
 
-The gateway pushes a tunable set of OCPP keys after every Accepted
-`BootNotification`: `HeartbeatInterval`, `ConnectionTimeOut`,
-`MeterValuesSampledData`, `StopTxnAlignedData`, and friends. Three
-sections on this page — **Common**, **AC**, **DC** — surface the
-operator-tunable values. Per-charger `charger_type` (`ac` | `dc` |
-unknown) below decides which measurand list a given charger gets.
+The gateway pushes a tunable set of **type-agnostic** OCPP keys after
+every Accepted `BootNotification`: `MeterValueSampleInterval`,
+`HeartbeatInterval`, `ConnectionTimeOut`, `WebSocketPingInterval`,
+`TransactionMessageAttempts`, `TransactionMessageRetryInterval`.
 Edits apply on the next boot of each charger; no gateway restart.
+
+Measurand-list keys (`MeterValuesSampledData`, `StopTxnAlignedData`,
+…) are intentionally **NOT** pushed here — they differ between AC
+and DC chargers and `BootNotification` doesn't carry a reliable
+AC/DC signal. Send those per-charger via the gateway's existing
+`POST /api/v1/charge-points/{cp_id}/commands/change-configuration`.
 
 ## Surfaces (server)
 

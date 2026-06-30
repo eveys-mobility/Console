@@ -5,10 +5,11 @@
 // an edit here applies on the NEXT boot of any charger without
 // restarting the gateway.
 //
-// Per-charger AC/DC flag lives at the top: the gateway reads the
-// charge_points.charger_type column to pick AC vs DC measurand lists
-// during the post-boot push. The page lets an operator set this flag
-// in bulk (one row per known charger).
+// Scope: only type-agnostic keys. Measurand-list keys
+// (MeterValuesSampledData / StopTxnAlignedData / …) are intentionally
+// excluded — they differ between AC and DC chargers and
+// BootNotification doesn't carry a reliable AC/DC signal. Send those
+// per-charger via the existing ChangeConfiguration command surface.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,19 +20,12 @@ import {
   setGatewayAdminConfig,
   type GatewayAdminConfig,
 } from '@/api/config-client';
-import {
-  OCPP_FIELDS,
-  setChargerType,
-  type ChargerType,
-  type OcppFieldSpec,
-} from '@/api/ocpp-config-client';
+import { OCPP_FIELDS, type OcppFieldSpec } from '@/api/ocpp-config-client';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
-import { useSubscription } from '@/hooks/use-subscription';
 import { useConsoleClient } from '@/lib/ws-context';
 
 interface DraftState {
@@ -92,19 +86,15 @@ export function OcppConfigPage() {
 
   const saveMutation = useMutation({
     mutationFn: async (updates: Record<string, string>) => {
-      // Coerce ints client-side: the gateway accepts strings, but
+      // Coerce ints client-side: the gateway accepts strings but
       // sending a number makes the override schema cleaner.
       const payload: Record<string, unknown> = {};
       for (const [k, raw] of Object.entries(updates)) {
         const spec = OCPP_FIELDS.find((f) => f.key === k);
         if (!spec) continue;
-        if (spec.kind === 'int') {
-          const n = Number(raw);
-          if (!Number.isFinite(n)) throw new Error(`${spec.label}: not a number`);
-          payload[k] = n;
-        } else {
-          payload[k] = raw;
-        }
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${spec.label}: not a number`);
+        payload[k] = n;
       }
       return setGatewayAdminConfig(token!, payload);
     },
@@ -155,34 +145,14 @@ export function OcppConfigPage() {
       ) : null}
 
       <Section
-        title="Common (AC + DC)"
-        description="Pushed via ChangeConfiguration to every charger after boot."
-        fields={OCPP_FIELDS.filter((f) => f.section === 'common')}
+        title="Post-boot ChangeConfiguration"
+        description="Type-agnostic keys the gateway pushes to every charger after each Accepted BootNotification. Measurand-list keys (MeterValuesSampledData / StopTxnAlignedData / …) are AC/DC-specific and need to be sent per-charger via the ChangeConfiguration command instead."
+        fields={OCPP_FIELDS}
         draft={draft}
         effective={effective}
         overrides={configQ.data.overrides}
         onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
       />
-      <Section
-        title="AC chargers"
-        description="Pushed when a charger's charger_type is 'ac' (or NULL → AC by default)."
-        fields={OCPP_FIELDS.filter((f) => f.section === 'ac')}
-        draft={draft}
-        effective={effective}
-        overrides={configQ.data.overrides}
-        onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
-      />
-      <Section
-        title="DC chargers"
-        description="Pushed when a charger's charger_type is 'dc'. Typically carries SoC."
-        fields={OCPP_FIELDS.filter((f) => f.section === 'dc')}
-        draft={draft}
-        effective={effective}
-        overrides={configQ.data.overrides}
-        onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
-      />
-
-      <ChargerTypePanel />
     </div>
   );
 }
@@ -264,11 +234,11 @@ function Section({
                 </div>
                 <Input
                   id={`f-${f.key}`}
-                  inputMode={f.kind === 'int' ? 'numeric' : 'text'}
+                  inputMode="numeric"
                   value={value}
                   onChange={(e) => onChange(f.key, e.target.value)}
                   className="font-mono text-xs"
-                  placeholder={f.kind === 'csv' ? 'comma,separated,measurands' : '0'}
+                  placeholder="0"
                 />
                 <p className="text-[10px] text-muted-foreground">{f.label}</p>
                 {f.hint ? <p className="text-[10px] text-muted-foreground">{f.hint}</p> : null}
@@ -278,114 +248,5 @@ function Section({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-interface ChargePointRow {
-  cp_id: string;
-  charger_type?: string | null;
-  vendor?: string | null;
-  model?: string | null;
-}
-
-function ChargerTypePanel() {
-  const { token } = useConsoleClient();
-  const qc = useQueryClient();
-
-  // Subscribe to the live charge-points list (same one FleetPage uses).
-  // Limited page size — operators on huge fleets should use the per-CP
-  // detail page; this panel is a fast-path for small to medium sites.
-  const sub = useSubscription('charge-points', { limit: 200 });
-  const rows = useMemo<ChargePointRow[]>(() => {
-    const snap = sub.snapshot;
-    if (!snap || snap.kind !== 'charge-points') return [];
-    return (snap.rows as unknown as ChargePointRow[]) ?? [];
-  }, [sub.snapshot]);
-
-  const typeMutation = useMutation({
-    mutationFn: ({ cpId, type }: { cpId: string; type: ChargerType }) =>
-      setChargerType(token!, cpId, type),
-    onSuccess: () => {
-      // The mutation hits the gateway directly; rebroadcast a bump so
-      // the WS feed and any per-CP query refetch.
-      void qc.invalidateQueries({ queryKey: ['cp-detail'] });
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle>Charger type (per-charger AC / DC)</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          The post-boot push uses this to pick the right measurand list. NULL is treated as AC.
-          Effective on the next BootNotification.
-        </p>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {sub.loading ? 'Loading chargers…' : 'No chargers in this view.'}
-          </p>
-        ) : (
-          <div className="divide-y rounded border">
-            {rows.map((row) => (
-              <div
-                key={row.cp_id}
-                className="flex items-center justify-between gap-3 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-sm">{row.cp_id}</div>
-                  {row.vendor || row.model ? (
-                    <div className="truncate text-[10px] text-muted-foreground">
-                      {[row.vendor, row.model].filter(Boolean).join(' · ')}
-                    </div>
-                  ) : null}
-                </div>
-                <ChargerTypeSelect
-                  value={(row.charger_type as ChargerType) ?? null}
-                  onChange={(t) => typeMutation.mutate({ cpId: row.cp_id, type: t })}
-                  disabled={typeMutation.isPending}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-        {typeMutation.error ? (
-          <p className="mt-2 text-xs text-destructive">
-            {typeMutation.error instanceof Error
-              ? typeMutation.error.message
-              : 'update failed'}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ChargerTypeSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: ChargerType;
-  onChange: (v: ChargerType) => void;
-  disabled?: boolean;
-}) {
-  const stringValue = value === null ? '__null__' : value;
-  return (
-    <Select
-      value={stringValue}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (v === '__null__') onChange(null);
-        else if (v === 'ac' || v === 'dc') onChange(v);
-      }}
-      disabled={disabled}
-      className="w-32 text-xs"
-    >
-      <option value="__null__">unknown (AC)</option>
-      <option value="ac">AC</option>
-      <option value="dc">DC</option>
-    </Select>
   );
 }
