@@ -49,7 +49,9 @@ COMPOSE_OBS := $(COMPOSE) --profile observability
 EVEYS_ENV ?= $(shell sh -c '\
 	if [ -n "$$EVEYS_ENV" ]; then echo "$$EVEYS_ENV"; \
 	elif [ -f .env ]; then \
-	  grep -E "^EVEYS_ENV=" .env 2>/dev/null | head -n1 | cut -d= -f2- | tr -d "\042\047"; \
+	  grep -E "^[[:space:]]*EVEYS_ENV[[:space:]]*=" .env 2>/dev/null \
+	    | head -n1 | sed -E "s/^[[:space:]]*EVEYS_ENV[[:space:]]*=[[:space:]]*//" \
+	    | tr -d "\042\047" | tr -d "[:space:]"; \
 	fi')
 
 _require-nonprod:
@@ -238,8 +240,21 @@ grafana-down: _require-nonprod
 #   make update SERVER_ONLY=1   # only rebuild + recreate the server
 #   make update WEB_ONLY=1      # only rebuild + recreate the web
 #   make update SKIP_GATES=1    # skip format + build (emergency rollback)
+#
+# Gates auto-skip when EVEYS_ENV=production. The build gate exists to
+# stop a broken local tree from shipping; on a production server the
+# code already passed CI and the test sandbox on the box itself (e.g.
+# Node-version-specific jsdom quirks) is what breaks, not the code.
+# Override the auto-skip with FORCE_GATES=1 if you really want the
+# gates on a production box too.
 update:
-	@if [ "$(SKIP_GATES)" != "1" ]; then \
+	@should_skip="$(SKIP_GATES)"; \
+	if [ "$(EVEYS_ENV)" = "production" ] && [ "$(FORCE_GATES)" != "1" ]; then \
+	  should_skip="1"; \
+	  echo "==> EVEYS_ENV=production: skipping format + build gates (CI already validated)"; \
+	  echo "    override with FORCE_GATES=1 if you really want them"; \
+	fi; \
+	if [ "$$should_skip" != "1" ]; then \
 	  $(MAKE) format && $(MAKE) build; \
 	fi
 	@flags=""; \
