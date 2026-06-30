@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/table';
 import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
 import { useSubscription } from '@/hooks/use-subscription';
-import { formatRelativeTime, formatUptime } from '@/lib/time';
+import { formatAbsoluteTime, formatRelativeTime, formatUptime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 
 interface Props {
@@ -250,7 +250,7 @@ function TransactionsTable({
               </TableCell>
               <TableCell
                 className="text-xs text-muted-foreground"
-                title={new Date(row.started_at).toISOString()}
+                title={formatAbsoluteTime(row.started_at)}
               >
                 {formatRelativeTime(row.started_at)}
               </TableCell>
