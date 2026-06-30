@@ -132,6 +132,14 @@ services:
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
+      # Vite inlines VITE_* at build time. Passed through here so the
+      # operator's repo-root .env (or apps/web/.env, picked up by
+      # scripts/updater.sh) reaches the bundle. Without these, the SPA
+      # falls back to `${hostname}:8090/api` and bypasses the reverse
+      # proxy.
+      args:
+        VITE_CONSOLE_BASE_URL: ${VITE_CONSOLE_BASE_URL:-}
+        VITE_WS_URL: ${VITE_WS_URL:-}
     image: eveys-console-web:dev
     container_name: eveys-console-web
     ports:

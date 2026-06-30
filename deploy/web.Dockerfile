@@ -32,6 +32,18 @@ RUN --mount=type=cache,target=/root/.pnpm-store \
 COPY apps ./apps
 COPY packages ./packages
 
+# Vite reads VITE_* env vars at build time and inlines them into the
+# bundle. `apps/web/.env` is excluded by .dockerignore (secrets stay
+# outside images), so VITE_CONSOLE_BASE_URL / VITE_WS_URL come in as
+# build args instead. Without these, the SPA falls back to
+# `${hostname}:8090/api` (apps/web/src/lib/console-url.ts) — which
+# only works when the Console server is reachable on host port 8090
+# directly. Behind a reverse proxy, that's wrong.
+ARG VITE_CONSOLE_BASE_URL
+ARG VITE_WS_URL
+ENV VITE_CONSOLE_BASE_URL=${VITE_CONSOLE_BASE_URL}
+ENV VITE_WS_URL=${VITE_WS_URL}
+
 RUN pnpm --filter @eveys-console/api-types run generate \
  && pnpm --filter @eveys-console/protocol run build \
  && pnpm --filter @eveys-console/web run build
