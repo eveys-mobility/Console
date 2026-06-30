@@ -110,6 +110,12 @@ snapshot followed by deltas; the server fans the gateway's Kafka
 topics into deltas and re-fetches REST rows when a topic event
 mutates them.
 
+Times in the UI render in the operator's local zone with a
+`±HH:MM` offset suffix on the hover tooltip (e.g.
+`2026-06-30 21:36:29 +03:00`). The offset stays in the string so a
+screenshot of the UI is still unambiguous when correlated with the
+UTC log lines the gateway emits.
+
 ## Configuration
 
 The server reads its configuration from `apps/server/.env`. The
@@ -124,23 +130,22 @@ to — i.e. when there's a reverse proxy in front, or when the API
 lives on a different host. Two keys, both Vite build-time:
 
 ```bash
-# apps/web/.env
-VITE_CONSOLE_BASE_URL=https://console.example.com/api
-VITE_WS_URL=wss://console.example.com/ws
+# apps/web/.env — either form works; both produce the same final URL
+VITE_CONSOLE_BASE_URL=https://console.example.com
+# or:
+# VITE_CONSOLE_BASE_URL=https://console.example.com/api
+
+VITE_WS_URL=wss://console.example.com
+# or:
+# VITE_WS_URL=wss://console.example.com/ws
 ```
 
 These are **build-time** — Vite inlines them into the bundle.
-`make update` (or `make compose-up`, which delegates to the same
-updater script) picks them up automatically as docker build args,
-so a `make update` after editing `apps/web/.env` is enough to make
-the new URLs effective. No restart-the-server step needed; the URLs
-are baked into the static bundle the web container serves.
-
-> If the SPA is still hitting `${hostname}:8090` after an update,
-> docker's build cache may be holding a stale layer. Force a clean
-> rebuild with
-> `docker compose -f deploy/docker-compose.yml build --no-cache web`
-> and re-run `make update`.
+`make update` picks them up automatically as docker build args,
+and a content digest of `apps/web/.env` flows through as a
+cache-buster, so any byte change in that file reliably invalidates
+the `pnpm build` layer on the next update — no manual
+`--no-cache` needed.
 
 Inside the running process, a smaller set of keys are flippable
 without a restart. The Configuration page surfaces both, with
