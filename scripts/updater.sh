@@ -132,8 +132,14 @@ translate_env_for_docker() {
 
 cleanup_translated_envs() {
   for f in "${TRANSLATED_ENV_FILES[@]:-}"; do
-    [[ -n "${f}" && -f "${f}" ]] && rm -f "${f}"
+    if [[ -n "${f}" && -f "${f}" ]]; then
+      rm -f "${f}"
+    fi
   done
+  # Explicit success — the trap fires under `set -e` at EXIT, and a
+  # falsy `&&` chain in the loop body (e.g. an empty array) would
+  # otherwise propagate as the script's exit code.
+  return 0
 }
 trap cleanup_translated_envs EXIT
 
