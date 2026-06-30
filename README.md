@@ -3,33 +3,32 @@
 [![CI](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml/badge.svg)](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-System-administration console for the
-[**eveys-mobility/OCPP**](https://github.com/eveys-mobility/OCPP)
-gateway — the standalone Python service that terminates charger
-WebSockets, validates and dispatches OCPP-J 1.6 / 2.0.1 messages,
-and exposes a backend-facing contract over REST, gRPC, Kafka, and
-webhooks. The Console is a **consumer of the gateway**; everything
-this app shows (fleet status, transactions, MeterValues charts,
-alerts, OCPP-config matrix) is rendered from the gateway's existing
-surfaces.
+This is a sign-in protected operator console for the
+[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway —
+the standalone service that owns the WebSocket connection to every
+charger. The Console doesn't talk OCPP itself. It's a thin consumer of
+the gateway's existing REST and Kafka surfaces: a fleet view, a
+transaction view with live kW/kWh charts, an alerts dashboard that
+talks to Prometheus and Alertmanager, and a few configuration pages
+for runtime tuning. The target audience is the SRE / on-call engineer
+who has to run the gateway, not the end-customer fleet manager.
 
-Sign-in protected, single WebSocket per tab, live snapshot+tail
-subscriptions backed by the gateway's Kafka topics and REST API.
-
-Targets SRE / on-call engineers running the gateway — not end-customer
-fleet managers. Apache-2.0.
+The web app is React + shadcn/ui + TanStack Router. The server is
+Fastify, with one WebSocket per tab carrying snapshot + tail
+subscriptions for the live views. Login is bcrypt'd
+username/password with a small client-side proof-of-work CAPTCHA;
+short-lived JWTs after that. Apache-2.0.
 
 ---
 
 ## Quickstart
 
-Brings up the Console server + web. Requires the OCPP gateway already
-running on `:8080` with REST + Kafka — see the
-[gateway quickstart](https://github.com/eveys-mobility/OCPP#quickstart).
+The Console expects the OCPP gateway to be reachable already — see
+the [gateway quickstart](https://github.com/eveys-mobility/OCPP#quickstart)
+for that side. Once it's running:
 
 ```bash
-# Prereqs: Node 20+, pnpm 9.15 (`corepack prepare pnpm@9.15.0 --activate`),
-#          Docker.
+corepack prepare pnpm@9.15.0 --activate     # Node 20+, pnpm 9.15
 
 git clone git@github.com:eveys-mobility/Console.git eveys-console
 cd eveys-console
@@ -38,156 +37,120 @@ pnpm install
 pnpm gen:api-types
 cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example    apps/web/.env
-# Edit apps/server/.env: set JWT_SECRET, GATEWAY_TOKEN, KAFKA_BROKERS,
-# CONSOLE_USERNAME / CONSOLE_PASSWORD.
+# Edit apps/server/.env: at minimum set JWT_SECRET, GATEWAY_TOKEN
+# (matching the gateway's REST_INBOUND_TOKENS), KAFKA_BROKERS, and
+# the CONSOLE_USERNAME / CONSOLE_PASSWORD pair.
 
 pnpm dev
 ```
 
-| URL | What |
-|---|---|
-| http://localhost:5180 | Web app (sign in with the credentials above) |
-| http://localhost:8090 | Server REST + WS |
-| http://localhost:8090/healthz | Liveness probe |
-| http://localhost:8090/metrics | Prometheus scrape |
+The web app opens on `http://localhost:5180`; the Fastify server lives
+on `http://localhost:8090`. Sign in with the credentials you put in
+the `.env`. The login form runs a small proof-of-work before
+submitting — about 50 ms of CPU in a real browser, enough to make
+credential-stuffing unattractive without bothering the operator.
 
-### Docker
+If you'd rather run everything in Docker, `docker compose -f
+deploy/docker-compose.yml up -d --build server web` does the
+equivalent. The compose file declares the gateway's network as an
+external dependency, so the server can reach the gateway's Kafka
+through the internal listener without the advertised-listener mismatch
+you'd hit going via `host.docker.internal`.
 
-```bash
-docker compose -f deploy/docker-compose.yml up -d --build server web
-```
+## Updating
 
-Server on `:8090`, web on `:5180`. The `--profile observability` flag
-also brings up the bundled Prometheus + Alertmanager pair (`:9091` and
-`:9093`).
+`sh scripts/updater.sh` pulls the latest, rebuilds the server and web
+images, and recreates the containers in place. There's no database —
+the Console keeps state in a small SQLite for diagnostics and a JSON
+file for runtime overrides, both inside a named volume — so an update
+is just a rebuild. On hosts marked `EVEYS_ENV=production` the script
+asks for confirmation before recreating. `FORCE_PROD=1` skips the
+prompt.
 
-## Update (rebuild + restart)
+Updating the gateway is a separate operation that lives in the
+[gateway repo](https://github.com/eveys-mobility/OCPP) (`make update`
+there).
 
-One-shot updater pulls the latest, rebuilds both images, and recreates
-the containers in place. No database — Console has no schema of its
-own. Scope: this script updates the **Console only**. The OCPP
-gateway has its own updater in the [gateway repo](https://github.com/eveys-mobility/OCPP)
-(`make update` there).
+## What's where
 
-```bash
-sh scripts/updater.sh                     # both
-sh scripts/updater.sh --server-only       # server only
-sh scripts/updater.sh --web-only          # web only
-sh scripts/updater.sh --no-pull           # skip git pull
-```
+The operator dashboard at `/` is the landing page — a summary of
+firing alerts, headline metrics (chargers online, sessions in
+flight, faults), and service status. Everything else is reachable
+from the sidebar:
 
-On hosts with `EVEYS_ENV=production` the script prompts before
-recreating; pass `FORCE_PROD=1` to silence.
+- **`/inspect/charge-points`** lists the fleet with AC/DC + power
+  chips and a faults filter. Each row links to a per-charger detail
+  page that shows connector state, active and recent sessions,
+  diagnostics history, and a live device-event feed.
+- **`/inspect/transactions`** is the cross-fleet session view with
+  date and stop-reason filters. Click into a transaction for a live
+  detail page — kW per phase and cumulative kWh charts that refresh
+  the moment a MeterValues arrives.
+- **`/sys/alerts`** is the operator's view of Prometheus and
+  Alertmanager: firing alerts, active silences, channels for Slack /
+  email / webhook receivers, and inline CRUD for a Console-managed
+  rule group with `promtool check rules` running before every save.
+- **`/sys/authorizations`** is the operator-driven charger
+  allowlist. Pending registrations bubble up here for approval before
+  a new charger is accepted into the fleet.
+- **`/sys/ocpp-config`** lets the operator tune the keys the
+  gateway pushes via ChangeConfiguration after every Accepted
+  BootNotification — heartbeat interval, connection timeout, the
+  transaction retry knobs. Edits apply on the next boot of each
+  charger; no gateway restart is needed.
+- **`/sys/config`** is two tabs of runtime overrides — one for the
+  Console's own keys (persisted to disk), one for the gateway's
+  per-pod override map (cleared on gateway restart).
 
-## Pages
-
-| Path | What |
-|---|---|
-| `/` | Operator dashboard — alerts summary, metrics, service status |
-| `/inspect/charge-points` | Fleet view; AC/DC + power chips; faults filter |
-| `/inspect/charge-points/$cpId` | Charger detail — connectors, sessions, diagnostics, device events |
-| `/inspect/transactions` | Active + recent transactions across the fleet |
-| `/inspect/transactions/$txId` | Per-transaction detail with live kW + kWh charts |
-| `/sys/alerts` | Firing alerts, silences, channels, rules (Alertmanager + Prometheus) |
-| `/sys/authorizations` | Operator-driven charger allowlist (#0013) |
-| `/sys/ocpp-config` | Post-boot ChangeConfiguration matrix (type-agnostic keys) |
-| `/sys/config` | Console + Gateway runtime overrides |
-| `/sys/ocpp-conformance` | OCPP conformance matrix |
-
-### OCPP config page (`/sys/ocpp-config`)
-
-The gateway pushes a tunable set of **type-agnostic** OCPP keys after
-every Accepted `BootNotification`: `MeterValueSampleInterval`,
-`HeartbeatInterval`, `ConnectionTimeOut`, `WebSocketPingInterval`,
-`TransactionMessageAttempts`, `TransactionMessageRetryInterval`.
-Edits apply on the next boot of each charger; no gateway restart.
-
-Measurand-list keys (`MeterValuesSampledData`, `StopTxnAlignedData`,
-…) are intentionally **NOT** pushed here — they differ between AC
-and DC chargers and `BootNotification` doesn't carry a reliable
-AC/DC signal. Send those per-charger via the gateway's existing
-`POST /api/v1/charge-points/{cp_id}/commands/change-configuration`.
-
-## Surfaces (server)
-
-| Surface | Bind | Purpose |
-|---|---|---|
-| WebSocket | `:8090/ws` | Subscriptions + RPCs in one connection (subprotocol `eveys-console-v1` + `bearer.<jwt>`) |
-| REST (auth) | `:8090/auth/{challenge,login}` | PoW CAPTCHA + login → short-lived JWT |
-| REST (sys) | `:8090/sys/*` | Status, config, alerts, transactions, authorizations, ocpp-config, diagnostics |
-| Metrics | `:8090/metrics` | Prometheus scrape (network-ACL'd in prod) |
-| Health | `:8090/healthz`, `:8090/readyz` | k8s probes |
+The realtime layer is a single WebSocket per tab. The browser
+subscribes to one or more named queries (`charge-points`,
+`transactions-active`, `meter-history`, etc.) and gets back a
+snapshot followed by deltas; the server fans the gateway's Kafka
+topics into deltas and re-fetches REST rows when a topic event
+mutates them.
 
 ## Configuration
 
-Two `.env` files in `apps/`:
+The server reads its configuration from `apps/server/.env`. The
+example file (`apps/server/.env.example`) covers the values most
+operators need to touch — JWT secret, gateway token and base URL,
+Kafka brokers, login credentials, optional Alertmanager and
+Prometheus URLs. The web side (`apps/web/.env`) only matters when
+the Console server is on a different host than the web app — by
+default the client builds its URLs from `window.location`.
 
-- **`apps/server/.env.example`** — server quickstart template (JWT,
-  gateway token, Kafka brokers, Alertmanager / Prometheus URLs,
-  Console login).
-- **`apps/web/.env.example`** — web-side overrides for when the
-  Console server is on a different host (defaults come from
-  `window.location`).
+Inside the running process, a smaller set of keys are flippable
+without a restart. The Configuration page surfaces both, with
+inline editors for the allowlisted ones and a "Reset to env" button
+for any overrides in effect.
 
-The Configuration page (`/sys/config`) reads from the live process and
-edits flow through one of two override stores:
+## Repository layout
 
-- **Console keys** → `data/console-overrides.json` (persisted).
-- **Gateway keys** → gateway's per-pod in-memory override map
-  (cleared on gateway restart). Proxied via `/sys/gateway-admin-config`.
+The repo is a pnpm workspace:
 
-## Repo layout
+- `apps/server/` is the Fastify server — authentication, REST proxies
+  to the gateway, the WebSocket broker, the Kafka tail, Prometheus
+  metrics.
+- `apps/web/` is the SPA — React, shadcn/ui, TanStack Router and
+  Query, Recharts for the live charts.
+- `packages/protocol/` is the WebSocket envelope contract — zod
+  schemas shared by both apps so the wire shape is enforced on both
+  ends.
+- `packages/api-types/` is generated from the gateway's OpenAPI spec,
+  so REST callers stay typed.
+- `deploy/` carries the production-shaped Dockerfiles plus the
+  observability bundle (Prometheus + Alertmanager) that comes up
+  behind a profile flag.
 
-```
-apps/
-├── server/                 Node + Fastify + ws + kafkajs Console server
-│   └── src/{auth,broker,kafka,metrics,rest,routes,store}
-└── web/                    React + shadcn/ui + TanStack Router
-    └── src/{api,components,hooks,lib,pages}
+Standard pnpm commands cover the day-to-day: `pnpm format` for
+Prettier, `pnpm typecheck` for tsc, `pnpm test` for the Vitest suite,
+`pnpm build` for the production bundle.
 
-packages/
-├── protocol/               shared WS envelope contract (zod + TS types)
-└── api-types/              types generated from the gateway's OpenAPI
+## Contributing and license
 
-deploy/
-├── docker-compose.yml      server + web + (--profile observability)
-└── observability/          bundled prometheus / alertmanager / alerts seed
+Issues and PRs are welcome. Run `pnpm format` and `pnpm typecheck`
+before pushing; CI runs both plus the test suite and a Promtool /
+amtool check against the observability bundle on every PR.
 
-scripts/
-└── updater.sh              one-shot rebuild + recreate (Console only)
-```
-
-## Realtime model
-
-One WebSocket per tab. Inside it: subscribe to a named query
-(`charge-points`, `charge-point`, `transactions-active`,
-`meter-history`, `status-history`, `device-events`) → snapshot + tail.
-RPC to issue commands (`remote-start`, `remote-stop`, `reset`); the
-server forwards to the gateway's REST and relays the response.
-
-Wire format in `packages/protocol/` (zod schemas, enforced on both
-ends). Kafka payloads decode through the vendored
-`apps/server/proto/events/v1/` envelopes.
-
-Per-transaction detail (`/inspect/transactions/$txId`) is REST-polled
-every 5 s **and** force-refetches the instant a `cp.meter` event
-arrives over WS, so the charts feel live without the broker carrying
-per-tab per-tx state.
-
-## Build, test, ship
-
-```bash
-pnpm format        # prettier
-pnpm typecheck     # tsc --noEmit across all packages
-pnpm test          # vitest, all packages
-pnpm build         # tsc + vite build, both apps
-```
-
-CI runs `format:check + typecheck + test + build` on every PR, plus a
-`validate-observability` job that runs `promtool check config/rules`
-and `amtool check-config` against the bundled `deploy/observability/`
-files.
-
-## License
-
-Apache-2.0. See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+Released under the Apache License, Version 2.0 —
+[`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE).
