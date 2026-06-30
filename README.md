@@ -133,15 +133,57 @@ The repo is a pnpm workspace:
   observability bundle (Prometheus + Alertmanager) that comes up
   behind a profile flag.
 
-Standard pnpm commands cover the day-to-day: `pnpm format` for
-Prettier, `pnpm typecheck` for tsc, `pnpm test` for the Vitest suite,
-`pnpm build` for the production bundle.
+## Commands
+
+Top-level workspace verbs, fanned out across `apps/` and `packages/`
+via `pnpm -r`. Equivalent to the gateway's `make` targets in spirit
+— same grouping, different runner.
+
+**Setup**
+
+| Target | What it does |
+|---|---|
+| `corepack prepare pnpm@9.15.0 --activate` | Pin the pnpm version so `pnpm install` matches CI. One-time. |
+| `pnpm install` | Install workspace deps. Idempotent. |
+| `pnpm gen:api-types` | Regenerate `packages/api-types/` from the gateway's OpenAPI spec. Re-run after the gateway exports a new spec. |
+
+**Day-to-day**
+
+| Target | What it does |
+|---|---|
+| `pnpm dev` | Run both `apps/server/` and `apps/web/` in watch mode. Web on `:5180`, server on `:8090`. |
+| `pnpm --filter @eveys-console/server dev` | Only the server. Restarts on `apps/server/.env` changes. |
+| `pnpm --filter @eveys-console/web dev` | Only the web (Vite). |
+| `pnpm --filter @eveys-console/server mint-token` | Print a dev JWT for headless testing without going through the login form. |
+| `pnpm --filter @eveys-console/server hash-password` | Bcrypt a password for `CONSOLE_USERS`. |
+
+**Code quality**
+
+| Target | What it does |
+|---|---|
+| `pnpm format` | Prettier across the workspace. |
+| `pnpm format:check` | Prettier in check mode (CI gate). |
+| `pnpm lint` | ESLint across both apps. |
+| `pnpm typecheck` | `tsc --noEmit` across both apps. |
+| `pnpm test` | Vitest across both apps. |
+| `pnpm build` | Production bundle (`tsc` for the server, `tsc + vite build` for the web). |
+
+**Deployment**
+
+| Target | What it does |
+|---|---|
+| `sh scripts/updater.sh` | One-shot rebuild → recreate `server` + `web` containers → poll `/api/healthz`. Never tears the stack down. `--server-only` / `--web-only` scope it. |
+| `docker compose -f deploy/docker-compose.yml up -d --build server web` | The same effect without the polling and the production-safety prompt. |
+| `docker compose -f deploy/docker-compose.yml --profile observability up -d` | Add the Prometheus + Alertmanager pair (`:9091`, `:9093`). |
+
+CI runs `format:check + typecheck + test + build` on every PR plus a
+`promtool check` and `amtool check-config` against the bundled
+`deploy/observability/` files.
 
 ## Contributing and license
 
 Issues and PRs are welcome. Run `pnpm format` and `pnpm typecheck`
-before pushing; CI runs both plus the test suite and a Promtool /
-amtool check against the observability bundle on every PR.
+before pushing.
 
 Released under the Apache License, Version 2.0 —
 [`LICENSE`](./LICENSE), [`NOTICE`](./NOTICE).
