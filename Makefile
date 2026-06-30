@@ -181,7 +181,13 @@ build:
 # ---- local stack ------------------------------------------------------------
 
 compose-up:
-	$(COMPOSE) up -d --build server web
+	@# Delegate to scripts/updater.sh so compose-up gets the same env
+	@# translation (localhost -> kafka:29092 / eveys-ocpp:8080), the
+	@# server-init chown step, and the /api/healthz poll that
+	@# `make update` already uses. Without it the server reads
+	@# KAFKA_BROKERS=localhost:9092 from .env, kafkajs hits the
+	@# container's own loopback, and the healthcheck never passes.
+	@sh scripts/updater.sh --no-pull
 
 build-images:
 	$(COMPOSE) build server web
