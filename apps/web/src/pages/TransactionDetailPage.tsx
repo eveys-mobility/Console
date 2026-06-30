@@ -49,21 +49,30 @@ export function TransactionDetailPage() {
   });
 
   const tx = txQuery.data;
-  // Window for the curve queries. For an open tx we anchor 'to' to
-  // "now" so each refetch slides the window forward; for a closed tx
-  // the window is fixed.
-  const now = Date.now();
+  // Window for the curve queries. For a CLOSED tx the window is fixed
+  // (`from`…`stopped_at`); for an OPEN tx we want the upper bound to
+  // slide forward on each refetch.
+  //
+  // Important: do NOT put a `new Date().toISOString()` upper bound in
+  // the queryKey for live transactions. Every render of this page
+  // would produce a different key, TanStack Query would treat each
+  // render as a brand-new query, and the chart would sit at
+  // `isLoading=true` forever — never reaching the resolved data of
+  // the previous render. Instead, use the literal string 'live' in
+  // the key while the tx is open, and compute the real `to`
+  // timestamp inside queryFn at fetch time. The polling cadence is
+  // unchanged (`refetchInterval`); each refetch sends a fresh `now`.
   const from = tx?.started_at;
-  const to = tx?.stopped_at ?? new Date(now).toISOString();
+  const stoppedAt = tx?.stopped_at ?? null;
 
   const enabled = !!token && !!tx && !!from;
 
   const powerQuery = useQuery({
-    queryKey: ['meter-values', tx?.cp_id, txId, POWER_MEASURAND, from, to],
+    queryKey: ['meter-values', tx?.cp_id, txId, POWER_MEASURAND, from, stoppedAt ?? 'live'],
     queryFn: () =>
       fetchMeterValues(token!, tx!.cp_id, {
         from: from!,
-        to,
+        to: stoppedAt ?? new Date().toISOString(),
         measurand: POWER_MEASURAND,
         connector_id: tx!.connector_id,
         limit: METER_VALUES_LIMIT,
@@ -73,11 +82,11 @@ export function TransactionDetailPage() {
   });
 
   const energyQuery = useQuery({
-    queryKey: ['meter-values', tx?.cp_id, txId, ENERGY_MEASURAND, from, to],
+    queryKey: ['meter-values', tx?.cp_id, txId, ENERGY_MEASURAND, from, stoppedAt ?? 'live'],
     queryFn: () =>
       fetchMeterValues(token!, tx!.cp_id, {
         from: from!,
-        to,
+        to: stoppedAt ?? new Date().toISOString(),
         measurand: ENERGY_MEASURAND,
         connector_id: tx!.connector_id,
         limit: METER_VALUES_LIMIT,
@@ -89,9 +98,9 @@ export function TransactionDetailPage() {
   // Live-refresh the two curves the moment a MeterValues arrives.
   // Polling stays as a safety net (best-effort Kafka tail), so the
   // 5 s cadence remains the floor; this just makes the common case
-  // feel live during an active session. Refetch is no-op while the
-  // tx is closed (queryKey changes — `to` becomes the fixed
-  // `stopped_at`).
+  // feel live during an active session. Refetch is no-op once the
+  // tx is closed (the 'live' marker in the queryKey above flips to
+  // the fixed `stopped_at` timestamp).
   const meterQueryKeys = useMemo(
     () =>
       tx?.cp_id
