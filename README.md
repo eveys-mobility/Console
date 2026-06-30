@@ -3,21 +3,12 @@
 [![CI](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml/badge.svg)](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-This is a sign-in protected operator console for the
-[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway —
-the standalone service that owns the WebSocket connection to every
-charger. The Console doesn't talk OCPP itself. It's a thin consumer of
-the gateway's existing REST and Kafka surfaces: a fleet view, a
-transaction view with live kW/kWh charts, an alerts dashboard that
-talks to Prometheus and Alertmanager, and a few configuration pages
-for runtime tuning. The target audience is the SRE / on-call engineer
-who has to run the gateway, not the end-customer fleet manager.
-
-The web app is React + shadcn/ui + TanStack Router. The server is
-Fastify, with one WebSocket per tab carrying snapshot + tail
-subscriptions for the live views. Login is bcrypt'd
-username/password with a small client-side proof-of-work CAPTCHA;
-short-lived JWTs after that. Apache-2.0.
+Sign-in protected operator console for the
+[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway.
+React + shadcn/ui + TanStack Router on the front end; Fastify with
+one WebSocket per tab carrying snapshot + tail subscriptions on the
+server. Bcrypt'd username/password with a client-side proof-of-work
+CAPTCHA; short-lived JWTs after that.
 
 ---
 
