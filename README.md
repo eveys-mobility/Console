@@ -57,13 +57,15 @@ also brings up the bundled Prometheus + Alertmanager pair (`:9091` and
 
 One-shot updater pulls the latest, rebuilds both images, and recreates
 the containers in place. No database — Console has no schema of its
-own.
+own. Scope: this script updates the **Console only**. The OCPP
+gateway has its own updater in the [gateway repo](https://github.com/eveys-mobility/OCPP)
+(`make update` there).
 
 ```bash
-./scripts/update.sh                       # both
-./scripts/update.sh --server-only         # server only
-./scripts/update.sh --web-only            # web only
-./scripts/update.sh --no-pull             # skip git pull
+sh scripts/updater.sh                     # both
+sh scripts/updater.sh --server-only       # server only
+sh scripts/updater.sh --web-only          # web only
+sh scripts/updater.sh --no-pull           # skip git pull
 ```
 
 On hosts with `EVEYS_ENV=production` the script prompts before
@@ -140,7 +142,7 @@ deploy/
 └── observability/          bundled prometheus / alertmanager / alerts seed
 
 scripts/
-└── update.sh               one-shot rebuild + recreate
+└── updater.sh              one-shot rebuild + recreate (Console only)
 ```
 
 ## Realtime model

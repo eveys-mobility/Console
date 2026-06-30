@@ -15,6 +15,16 @@ WORKDIR /repo
 # image happens to ship.
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
+# node-gyp build prerequisites for native modules. `better-sqlite3`
+# (the diagnostics + authorizations store, added in #3) ships
+# C++ sources and needs python3 + build-essential to compile when a
+# prebuild for the target arch isn't available — the slim base image
+# strips both. Without these, `pnpm install` exits with
+# "gyp ERR! not ok" on the better-sqlite3 install script.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 # Install all workspace dependencies (dev + prod) so the build can run.
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/server/package.json ./apps/server/

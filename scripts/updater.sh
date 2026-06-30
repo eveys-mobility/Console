@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/update.sh — one-shot updater for the eveys-console stack.
+# scripts/updater.sh — one-shot updater for the eveys-console stack.
 #
 # Pulls the latest code, rebuilds the `server` and `web` images, and
 # recreates the containers in place. No database — the Console has no
@@ -7,10 +7,10 @@
 # running plain Docker + Compose.
 #
 # Usage:
-#   scripts/update.sh                 # pull + rebuild + restart
-#   scripts/update.sh --no-pull       # don't `git pull`
-#   scripts/update.sh --server-only   # rebuild server only (keeps web running)
-#   scripts/update.sh --web-only      # rebuild web only (keeps server running)
+#   scripts/updater.sh                 # pull + rebuild + restart
+#   scripts/updater.sh --no-pull       # don't `git pull`
+#   scripts/updater.sh --server-only   # rebuild server only (keeps web running)
+#   scripts/updater.sh --web-only      # rebuild web only (keeps server running)
 #
 # Environment overrides:
 #   COMPOSE_FILE  Override the compose file path. Defaults to
