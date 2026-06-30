@@ -24,15 +24,14 @@ corepack prepare pnpm@9.15.0 --activate     # Node 20+, pnpm 9.15
 git clone git@github.com:eveys-mobility/Console.git eveys-console
 cd eveys-console
 
-pnpm install
-pnpm gen:api-types
 cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example    apps/web/.env
 # Edit apps/server/.env: at minimum set JWT_SECRET, GATEWAY_TOKEN
 # (matching the gateway's REST_INBOUND_TOKENS), KAFKA_BROKERS, and
 # the CONSOLE_USERNAME / CONSOLE_PASSWORD pair.
 
-pnpm dev
+make install            # pnpm install + regenerate api-types
+make dev                # apps/server + apps/web in watch mode
 ```
 
 The web app opens on `http://localhost:5180`; the Fastify server lives
@@ -41,22 +40,24 @@ the `.env`. The login form runs a small proof-of-work before
 submitting — about 50 ms of CPU in a real browser, enough to make
 credential-stuffing unattractive without bothering the operator.
 
-If you'd rather run everything in Docker, `docker compose -f
-deploy/docker-compose.yml up -d --build server web` does the
-equivalent. The compose file declares the gateway's network as an
-external dependency, so the server can reach the gateway's Kafka
-through the internal listener without the advertised-listener mismatch
-you'd hit going via `host.docker.internal`.
+If you'd rather run everything in Docker, `make compose-up` builds
+the images and brings the containers up; `make compose-status` and
+`make compose-logs` follow from there. The compose file declares the
+gateway's network as an external dependency, so the server reaches
+Kafka via the internal listener without the advertised-listener
+mismatch you'd hit through `host.docker.internal`.
 
 ## Updating
 
-`sh scripts/updater.sh` pulls the latest, rebuilds the server and web
-images, and recreates the containers in place. There's no database —
-the Console keeps state in a small SQLite for diagnostics and a JSON
-file for runtime overrides, both inside a named volume — so an update
-is just a rebuild. On hosts marked `EVEYS_ENV=production` the script
-asks for confirmation before recreating. `FORCE_PROD=1` skips the
-prompt.
+`make update` pulls the latest, rebuilds the server and web images,
+and recreates the containers in place — never tears the stack down.
+There's no database: the Console keeps state in a small SQLite for
+diagnostics and a JSON file for runtime overrides, both inside a
+named volume, so an update is just a rebuild. On hosts marked
+`EVEYS_ENV=production` it asks for confirmation; `FORCE_PROD=1`
+skips the prompt. `NO_PULL=1` skips the `git pull`; `SERVER_ONLY=1`
+or `WEB_ONLY=1` narrow the scope. Under the hood it runs
+`scripts/updater.sh`.
 
 Updating the gateway is a separate operation that lives in the
 [gateway repo](https://github.com/eveys-mobility/OCPP) (`make update`
@@ -133,50 +134,71 @@ The repo is a pnpm workspace:
   observability bundle (Prometheus + Alertmanager) that comes up
   behind a profile flag.
 
-## Commands
+## Make targets
 
-Top-level workspace verbs, fanned out across `apps/` and `packages/`
-via `pnpm -r`. Equivalent to the gateway's `make` targets in spirit
-— same grouping, different runner.
+The verbs you'll actually reach for, grouped by when. `make help`
+prints the live list. Each one wraps the matching `pnpm` command or
+`docker compose` invocation so the day-to-day flow doesn't depend on
+remembering filter flags.
 
 **Setup**
 
 | Target | What it does |
 |---|---|
-| `corepack prepare pnpm@9.15.0 --activate` | Pin the pnpm version so `pnpm install` matches CI. One-time. |
-| `pnpm install` | Install workspace deps. Idempotent. |
-| `pnpm gen:api-types` | Regenerate `packages/api-types/` from the gateway's OpenAPI spec. Re-run after the gateway exports a new spec. |
+| `make install` | Run `pnpm install` and regenerate `packages/api-types/` from the gateway's OpenAPI spec. |
+| `make gen-api-types` | Just the regenerate step. Re-run after the gateway publishes a new spec. |
 
 **Day-to-day**
 
 | Target | What it does |
 |---|---|
-| `pnpm dev` | Run both `apps/server/` and `apps/web/` in watch mode. Web on `:5180`, server on `:8090`. |
-| `pnpm --filter @eveys-console/server dev` | Only the server. Restarts on `apps/server/.env` changes. |
-| `pnpm --filter @eveys-console/web dev` | Only the web (Vite). |
-| `pnpm --filter @eveys-console/server mint-token` | Print a dev JWT for headless testing without going through the login form. |
-| `pnpm --filter @eveys-console/server hash-password` | Bcrypt a password for `CONSOLE_USERS`. |
+| `make dev` | Run `apps/server` and `apps/web` in watch mode (server on `:8090`, web on `:5180`). |
+| `make mint-token` | Print a dev JWT for headless testing without going through the login form. |
+| `make hash-password` | Bcrypt a password for `CONSOLE_USERS`. |
 
 **Code quality**
 
 | Target | What it does |
 |---|---|
-| `pnpm format` | Prettier across the workspace. |
-| `pnpm format:check` | Prettier in check mode (CI gate). |
-| `pnpm lint` | ESLint across both apps. |
-| `pnpm typecheck` | `tsc --noEmit` across both apps. |
-| `pnpm test` | Vitest across both apps. |
-| `pnpm build` | Production bundle (`tsc` for the server, `tsc + vite build` for the web). |
+| `make format` / `make format-check` | Prettier across the workspace, write or check. |
+| `make lint` | ESLint across both apps. |
+| `make typecheck` | `tsc --noEmit` across both apps. |
+| `make test` | Vitest across both apps. |
+| `make build` | Production bundle — `tsc` for the server, `tsc` + `vite build` for the web. |
+
+**Local stack (Docker)**
+
+| Target | What it does |
+|---|---|
+| `make compose-up` | Build and recreate `server` + `web`; forwards `apps/server/.env` to the compose interpolation. |
+| `make compose-status` | Container health. |
+| `make compose-logs` | Tail server + web logs. |
+| `make compose-down` | Stop containers, keep the named volume. *(production-gated)* |
+| `make compose-down-volumes` | Stop **and wipe** the `console-data` volume. *(production-gated, asks for confirmation)* |
+| `make build-images` | Build the images without recreating. |
+| `make grafana-up` / `make grafana-down` | Opt-in Prometheus + Alertmanager pair on `:9091` / `:9093`. *(grafana-down is production-gated)* |
 
 **Deployment**
 
 | Target | What it does |
 |---|---|
-| `sh scripts/updater.sh` | One-shot rebuild → recreate `server` + `web` containers → poll `/api/healthz`. Never tears the stack down. `--server-only` / `--web-only` scope it. |
-| `docker compose -f deploy/docker-compose.yml up -d --build server web` | The same effect without the polling and the production-safety prompt. |
-| `docker compose -f deploy/docker-compose.yml --profile observability up -d` | Add the Prometheus + Alertmanager pair (`:9091`, `:9093`). |
+| `make update` | One-shot rebuild → recreate → poll `/api/healthz`. Never tears the stack down. `NO_PULL=1` skips `git pull`; `SERVER_ONLY=1` / `WEB_ONLY=1` scope it. Delegates to `scripts/updater.sh`. |
 
-CI runs `format:check + typecheck + test + build` on every PR plus a
+**Cleanup**
+
+| Target | What it does |
+|---|---|
+| `make clean` | Drop `dist/`, `.turbo`, Vite caches. Keeps `node_modules`. |
+| `make distclean` | `clean` + drop `node_modules` across the workspace. *(production-gated)* |
+
+### Production safety
+
+Set `EVEYS_ENV=production` in the shell or in `.env`, and `compose-down`,
+`compose-down-volumes`, `grafana-down`, and `distclean` refuse to run
+unless `FORCE_PROD=1` is passed on the same command line. The override
+is per-invocation by design — it can't quietly stay on.
+
+CI runs `format-check + typecheck + test + build` on every PR plus a
 `promtool check` and `amtool check-config` against the bundled
 `deploy/observability/` files.
 
