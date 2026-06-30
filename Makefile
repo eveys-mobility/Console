@@ -192,7 +192,7 @@ compose-up:
 	@# `make update` already uses. Without it the server reads
 	@# KAFKA_BROKERS=localhost:9092 from .env, kafkajs hits the
 	@# container's own loopback, and the healthcheck never passes.
-	@sh scripts/updater.sh --no-pull
+	@bash scripts/updater.sh --no-pull
 
 build-images:
 	$(COMPOSE) build server web
@@ -264,7 +264,7 @@ update:
 	if [ "$(NO_PULL)" = "1" ]; then flags="$$flags --no-pull"; fi; \
 	if [ "$(SERVER_ONLY)" = "1" ]; then flags="$$flags --server-only"; fi; \
 	if [ "$(WEB_ONLY)" = "1" ]; then flags="$$flags --web-only"; fi; \
-	sh scripts/updater.sh $$flags
+	bash scripts/updater.sh $$flags
 
 # ---- cleanup ----------------------------------------------------------------
 
