@@ -24,7 +24,7 @@ COMPOSE := docker compose $(COMPOSE_ENV) -f deploy/docker-compose.yml
 # `make grafana-up` — the bundled scrape config + managed rules.
 COMPOSE_OBS := $(COMPOSE) --profile observability
 
-.PHONY: help install dev format format-check lint typecheck test build \
+.PHONY: help doctor install dev format format-check lint typecheck test build \
         gen-api-types mint-token hash-password \
         compose-up compose-down compose-down-volumes compose-status compose-logs \
         update build-images grafana-up grafana-down \
@@ -68,6 +68,9 @@ _require-nonprod:
 # ---- meta -------------------------------------------------------------------
 
 help:
+	@echo "Environment:"
+	@echo "  make doctor             check local-dev tools (Node, pnpm, Docker, …)"
+	@echo ""
 	@echo "Setup:"
 	@echo "  make install            install workspace deps + regenerate api-types"
 	@echo "  make gen-api-types      regenerate packages/api-types/ from the gateway's OpenAPI spec"
@@ -101,6 +104,11 @@ help:
 	@echo "Cleanup:"
 	@echo "  make clean              remove dist/, .turbo/, build caches"
 	@echo "  make distclean          clean + drop node_modules across the workspace"
+
+# ---- environment ------------------------------------------------------------
+
+doctor:
+	@./scripts/doctor.sh
 
 # ---- setup ------------------------------------------------------------------
 

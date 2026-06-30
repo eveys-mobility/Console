@@ -141,6 +141,12 @@ prints the live list. Each one wraps the matching `pnpm` command or
 `docker compose` invocation so the day-to-day flow doesn't depend on
 remembering filter flags.
 
+**Environment**
+
+| Target | What it does |
+|---|---|
+| `make doctor` | Check local-dev tools (Node 20+, pnpm 9.15, Docker, …) against minimum versions. Run this first if anything else complains. |
+
 **Setup**
 
 | Target | What it does |
