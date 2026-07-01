@@ -6,6 +6,7 @@ import type { ChargePointSummary } from '@eveys-console/protocol';
 
 import { ChargerSpecChips } from '@/components/ChargerSpecChips';
 import { TimeAgo } from '@/components/TimeAgo';
+import { Uptime } from '@/components/Uptime';
 import { UptimeChip } from '@/components/UptimeChip';
 import { CommandsConsole } from '@/components/CommandsConsole';
 import { DeviceEventsPanel } from '@/components/DeviceEventsPanel';
@@ -29,7 +30,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSubscription } from '@/hooks/use-subscription';
 import { chargePointFaultLevel, connectorFaultLevel, faultedConnectors } from '@/lib/fault';
 import { describeErrorCode } from '@/lib/ocpp-errors';
-import { formatUptime } from '@/lib/time';
 import { useIsBelow } from '@/lib/use-breakpoint';
 import { cn } from '@/lib/utils';
 
@@ -270,7 +270,7 @@ function Header({ cp }: { cp: ChargePointSummary }) {
             className="font-mono text-xs"
             title={`booted at ${cp.last_boot_at}`}
           >
-            since boot: {formatUptime(cp.last_boot_at)}
+            since boot: <Uptime iso={cp.last_boot_at} className="ml-1" />
           </Badge>
         ) : null}
         {/* Operational uptime % over a range (distinct from the

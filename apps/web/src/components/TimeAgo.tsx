@@ -5,7 +5,13 @@
 //
 // Renders an em-dash for null/unparseable input — same shape as the
 // underlying helpers — so the call site doesn't need a null check.
+//
+// Self-ticks on a shared 1 s clock so "12s ago" advances to "13s ago"
+// even when the parent hasn't re-rendered — needed on surfaces like
+// the charger-detail toolbar where the underlying prop only changes
+// on a Kafka event (boot/status), not on the wall clock.
 
+import { useTick } from '@/hooks/use-tick';
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +22,7 @@ interface Props {
 }
 
 export function TimeAgo({ iso, className }: Props) {
+  useTick();
   const rel = formatRelativeTime(iso);
   const abs = formatAbsoluteTime(iso);
   // When the timestamp is null / unparseable, both helpers return '—'.
