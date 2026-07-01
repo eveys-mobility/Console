@@ -29,6 +29,7 @@ import {
   validateTransactionsPageSearch,
   type TransactionsPageSearch,
 } from './pages/TransactionsPage';
+import { WebhookBacklogPage } from './pages/WebhookBacklogPage';
 
 export const rootRoute = createRootRoute({ component: ConsoleShell });
 
@@ -120,6 +121,12 @@ const authorizationsRoute = createRoute({
   component: AuthorizationsPage,
 });
 
+const webhookBacklogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sys/webhook-backlog',
+  component: WebhookBacklogPage,
+});
+
 export interface AlertsPageSearch {
   /** Deep-link to a specific tab on the alerts page. The page treats
    *  any unknown value as 'firing' (the default landing tab). */
@@ -156,4 +163,5 @@ export const routeTree = rootRoute.addChildren([
   ocppConfigRoute,
   ocppConformanceRoute,
   authorizationsRoute,
+  webhookBacklogRoute,
 ]);

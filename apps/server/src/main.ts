@@ -47,6 +47,7 @@ import { registerDiagnosticsRoutes } from './routes/diagnostics.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerMetricsRoute } from './routes/metrics.js';
 import { registerSysAlertsRoute } from './routes/sys-alerts.js';
+import { registerSysWebhookBacklogRoute } from './routes/sys-webhook-backlog.js';
 import { registerSysChargePointTransactionsRoute } from './routes/sys-charge-point-transactions.js';
 import { registerSysCpFramesRoute } from './routes/sys-cp-frames.js';
 import { registerSysCpUptimeRoute } from './routes/sys-cp-uptime.js';
@@ -189,6 +190,7 @@ async function main() {
       await registerSysFleetStatusHistoryRoute(api, { gateway });
       await registerSysCpEventsRoute(api, { eventLogRoot: config.EVENT_LOG_DIR });
       await registerSysTransactionsRoute(api, { gateway });
+      await registerSysWebhookBacklogRoute(api, { gateway });
       await registerSysAlertsRoute(api, { logger, channelsStore, rulesStore });
       await registerDiagnosticsRoutes(api, { store: diagnosticsStore });
     },

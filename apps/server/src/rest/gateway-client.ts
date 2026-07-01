@@ -424,6 +424,59 @@ export class GatewayClient {
       { method: 'POST' },
     );
   }
+
+  // ---- Webhook backlog admin (E3-9 tail) --------------------------------
+  //
+  // Backs `/sys/webhook-backlog` on the Console proxy. The gateway's
+  // routes live in `src/eveys_ocpp/api/webhook_backlog.py`; see
+  // docs/integration/03-webhooks.md § Delivery semantics for what a
+  // dead-letter row represents.
+
+  listWebhookBacklog(params: {
+    dead?: boolean;
+    event_type?: readonly string[];
+    cursor?: string;
+    limit?: number;
+  }) {
+    const qs = new URLSearchParams();
+    if (params.dead !== undefined) qs.set('dead', String(params.dead));
+    for (const t of params.event_type ?? []) qs.append('event_type', t);
+    if (params.cursor) qs.set('cursor', params.cursor);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return this.json<unknown>('list_webhook_backlog', `/api/v1/webhook-backlog${suffix}`);
+  }
+
+  getWebhookBacklog(id: string) {
+    return this.json<unknown>(
+      'get_webhook_backlog',
+      `/api/v1/webhook-backlog/${encodeURIComponent(id)}`,
+    );
+  }
+
+  replayWebhookBacklog(id: string) {
+    return this.json<unknown>(
+      'replay_webhook_backlog',
+      `/api/v1/webhook-backlog/${encodeURIComponent(id)}/replay`,
+      { method: 'POST' },
+    );
+  }
+
+  purgeWebhookBacklog(id: string) {
+    return this.json<unknown>(
+      'purge_webhook_backlog',
+      `/api/v1/webhook-backlog/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  replayDeadWebhookBacklog(body: { event_type?: readonly string[] }) {
+    return this.json<unknown>(
+      'replay_dead_webhook_backlog',
+      `/api/v1/webhook-backlog/replay-dead`,
+      { method: 'POST', body: { event_type: body.event_type ?? null } },
+    );
+  }
 }
 
 export class GatewayError extends Error {

@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Sliders,
   Sparkles,
+  Webhook,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -254,6 +255,12 @@ function NavContents({ path }: { path: string }) {
           label="OCPP config"
           icon={<Sliders className="h-4 w-4" />}
           active={path.startsWith('/sys/ocpp-config')}
+        />
+        <NavItem
+          to="/sys/webhook-backlog"
+          label="Webhook backlog"
+          icon={<Webhook className="h-4 w-4" />}
+          active={path.startsWith('/sys/webhook-backlog')}
         />
       </NavSection>
 
