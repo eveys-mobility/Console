@@ -13,6 +13,8 @@
 //          → DELETE /api/v1/webhook-backlog/{id}
 //   POST   /sys/webhook-backlog/replay-dead
 //          → POST /api/v1/webhook-backlog/replay-dead
+//   POST   /sys/webhook-backlog/purge-dead
+//          → POST /api/v1/webhook-backlog/purge-dead
 //
 // The gateway returns snake_case JSON; we pass it through unchanged so the
 // Console UI can bind directly to the frozen wire shape documented in
@@ -177,6 +179,35 @@ export async function registerSysWebhookBacklogRoute(app: any, deps: RouteDeps) 
         const params: Parameters<typeof deps.gateway.replayDeadWebhookBacklog>[0] = {};
         if (eventTypes !== undefined) params.event_type = eventTypes;
         return await deps.gateway.replayDeadWebhookBacklog(params);
+      } catch (err) {
+        return handleGatewayError(err, reply);
+      }
+    },
+  );
+
+  app.post(
+    '/sys/webhook-backlog/purge-dead',
+    { preHandler: requireAuth },
+    async (
+      req: { body: ReplayDeadBody | undefined },
+      reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+    ) => {
+      const eventTypes = req.body?.event_type ?? undefined;
+      // Same validation as replay-dead — both endpoints share the
+      // (optional) event_type array filter contract. Bad shapes get
+      // 400 before we round-trip to the gateway.
+      if (
+        eventTypes !== undefined &&
+        (!Array.isArray(eventTypes) || eventTypes.some((s) => typeof s !== 'string'))
+      ) {
+        return reply
+          .code(400)
+          .send({ error: 'bad-request', detail: 'event_type must be a string array' });
+      }
+      try {
+        const params: Parameters<typeof deps.gateway.purgeDeadWebhookBacklog>[0] = {};
+        if (eventTypes !== undefined) params.event_type = eventTypes;
+        return await deps.gateway.purgeDeadWebhookBacklog(params);
       } catch (err) {
         return handleGatewayError(err, reply);
       }

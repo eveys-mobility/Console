@@ -141,7 +141,8 @@ export type GatewayOp =
   | 'get_webhook_backlog'
   | 'replay_webhook_backlog'
   | 'purge_webhook_backlog'
-  | 'replay_dead_webhook_backlog';
+  | 'replay_dead_webhook_backlog'
+  | 'purge_dead_webhook_backlog';
 
 export function recordWsConnection(delta: 1 | -1): void {
   if (delta === 1) wsConnections.inc();

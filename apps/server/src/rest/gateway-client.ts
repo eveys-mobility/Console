@@ -477,6 +477,13 @@ export class GatewayClient {
       { method: 'POST', body: { event_type: body.event_type ?? null } },
     );
   }
+
+  purgeDeadWebhookBacklog(body: { event_type?: readonly string[] }) {
+    return this.json<unknown>('purge_dead_webhook_backlog', `/api/v1/webhook-backlog/purge-dead`, {
+      method: 'POST',
+      body: { event_type: body.event_type ?? null },
+    });
+  }
 }
 
 export class GatewayError extends Error {

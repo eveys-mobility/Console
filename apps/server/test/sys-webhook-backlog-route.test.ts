@@ -21,6 +21,7 @@ interface FakeGateway {
   replayWebhookBacklog: ReturnType<typeof vi.fn>;
   purgeWebhookBacklog: ReturnType<typeof vi.fn>;
   replayDeadWebhookBacklog: ReturnType<typeof vi.fn>;
+  purgeDeadWebhookBacklog: ReturnType<typeof vi.fn>;
 }
 
 function makeFakeGateway(): FakeGateway {
@@ -30,6 +31,7 @@ function makeFakeGateway(): FakeGateway {
     replayWebhookBacklog: vi.fn(),
     purgeWebhookBacklog: vi.fn(),
     replayDeadWebhookBacklog: vi.fn(),
+    purgeDeadWebhookBacklog: vi.fn(),
   };
 }
 
@@ -290,5 +292,59 @@ describe('POST /sys/webhook-backlog/replay-dead', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(gateway.replayDeadWebhookBacklog).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /sys/webhook-backlog/purge-dead', () => {
+  let gateway: FakeGateway;
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    gateway = makeFakeGateway();
+    app = await buildApp(gateway);
+  });
+
+  it('returns 401 without a JWT', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sys/webhook-backlog/purge-dead',
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('forwards without a body', async () => {
+    gateway.purgeDeadWebhookBacklog.mockResolvedValue({ count: 5 });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sys/webhook-backlog/purge-dead',
+      headers: { authorization: authHeader(app) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ count: 5 });
+    expect(gateway.purgeDeadWebhookBacklog).toHaveBeenCalledWith({});
+  });
+
+  it('forwards an event_type array', async () => {
+    gateway.purgeDeadWebhookBacklog.mockResolvedValue({ count: 2 });
+    await app.inject({
+      method: 'POST',
+      url: '/sys/webhook-backlog/purge-dead',
+      headers: { authorization: authHeader(app), 'content-type': 'application/json' },
+      payload: { event_type: ['tx.stopped'] },
+    });
+    expect(gateway.purgeDeadWebhookBacklog).toHaveBeenCalledWith({
+      event_type: ['tx.stopped'],
+    });
+  });
+
+  it('rejects a non-string-array event_type with 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sys/webhook-backlog/purge-dead',
+      headers: { authorization: authHeader(app), 'content-type': 'application/json' },
+      payload: { event_type: [123, {}] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(gateway.purgeDeadWebhookBacklog).not.toHaveBeenCalled();
   });
 });

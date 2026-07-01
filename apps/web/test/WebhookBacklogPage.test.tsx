@@ -35,11 +35,13 @@ const listMock = vi.fn();
 const replayMock = vi.fn();
 const purgeMock = vi.fn();
 const bulkReplayMock = vi.fn();
+const bulkPurgeMock = vi.fn();
 vi.mock('@/api/webhook-backlog-client', () => ({
   listWebhookBacklog: (...args: unknown[]) => listMock(...args),
   replayWebhookBacklog: (...args: unknown[]) => replayMock(...args),
   purgeWebhookBacklog: (...args: unknown[]) => purgeMock(...args),
   replayDeadWebhookBacklog: (...args: unknown[]) => bulkReplayMock(...args),
+  purgeDeadWebhookBacklog: (...args: unknown[]) => bulkPurgeMock(...args),
 }));
 
 import { WebhookBacklogPage } from '@/pages/WebhookBacklogPage';
@@ -101,6 +103,7 @@ beforeEach(() => {
   replayMock.mockReset();
   purgeMock.mockReset();
   bulkReplayMock.mockReset();
+  bulkPurgeMock.mockReset();
 });
 
 afterEach(() => {
@@ -262,6 +265,66 @@ describe('WebhookBacklogPage — Replay all dead', () => {
     await userEvent.setup().click(screen.getByTestId('bulk-replay'));
 
     await waitFor(() => expect(bulkReplayMock).toHaveBeenCalled());
+    spy.mockRestore();
+  });
+});
+
+// ---- bulk purge ---------------------------------------------------------
+
+describe('WebhookBacklogPage — Purge all dead', () => {
+  it('is disabled when no dead rows exist', async () => {
+    stubList({ deadCount: [], liveCount: [], deadList: [], liveList: [] });
+    renderPage();
+    await waitFor(() => screen.getByTestId('bulk-purge'));
+    expect(screen.getByTestId('bulk-purge')).toBeDisabled();
+  });
+
+  it('prompts for confirm and calls the bulk mutation when at least one row is dead', async () => {
+    const dead = row({ id: 'dead-200' });
+    stubList({
+      deadCount: [dead],
+      liveCount: [],
+      deadList: [dead],
+      liveList: [],
+    });
+    bulkPurgeMock.mockResolvedValue({ count: 1 });
+    const spy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderPage();
+    await waitFor(() => {
+      const btn = screen.getByTestId('bulk-purge');
+      expect(btn).not.toBeDisabled();
+    });
+
+    await userEvent.setup().click(screen.getByTestId('bulk-purge'));
+
+    expect(spy).toHaveBeenCalled();
+    await waitFor(() => expect(bulkPurgeMock).toHaveBeenCalled());
+    // Bulk purge does NOT trigger a bulk replay by mistake.
+    expect(bulkReplayMock).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('does nothing when the confirm is dismissed', async () => {
+    const dead = row({ id: 'dead-201' });
+    stubList({
+      deadCount: [dead],
+      liveCount: [],
+      deadList: [dead],
+      liveList: [],
+    });
+    const spy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    renderPage();
+    await waitFor(() => {
+      const btn = screen.getByTestId('bulk-purge');
+      expect(btn).not.toBeDisabled();
+    });
+
+    await userEvent.setup().click(screen.getByTestId('bulk-purge'));
+
+    expect(spy).toHaveBeenCalled();
+    expect(bulkPurgeMock).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });

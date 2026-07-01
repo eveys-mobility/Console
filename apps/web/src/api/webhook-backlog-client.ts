@@ -106,3 +106,17 @@ export async function replayDeadWebhookBacklog(
   if (!res.ok) throw new Error(`webhook-backlog.replay-dead ${res.status}`);
   return (await res.json()) as { count: number };
 }
+
+export async function purgeDeadWebhookBacklog(
+  token: string,
+  eventTypes?: readonly string[],
+): Promise<{ count: number }> {
+  const body = eventTypes && eventTypes.length > 0 ? { event_type: eventTypes } : {};
+  const res = await fetch(`${BASE}/sys/webhook-backlog/purge-dead`, {
+    method: 'POST',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`webhook-backlog.purge-dead ${res.status}`);
+  return (await res.json()) as { count: number };
+}

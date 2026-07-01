@@ -10,7 +10,9 @@
 //
 // Bulk "Replay all dead" is the post-outage cleanup path — when the
 // backend has been down for a stretch, N rows are dead and clicking
-// per-row Replay would be tedious.
+// per-row Replay would be tedious. Bulk "Purge all dead" is the
+// same shape for the "we accept the loss" case (the backend won't
+// or can't accept these events, and we want them out of the table).
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Radio, RefreshCw, Trash2 } from 'lucide-react';
@@ -18,6 +20,7 @@ import { useMemo, useState } from 'react';
 
 import {
   listWebhookBacklog,
+  purgeDeadWebhookBacklog,
   purgeWebhookBacklog,
   replayDeadWebhookBacklog,
   replayWebhookBacklog,
@@ -242,6 +245,10 @@ export function WebhookBacklogPage() {
     mutationFn: () => replayDeadWebhookBacklog(token!),
     onSettled: () => invalidate(),
   });
+  const bulkPurge = useMutation({
+    mutationFn: () => purgeDeadWebhookBacklog(token!),
+    onSettled: () => invalidate(),
+  });
 
   const handleReplay = (id: string) => {
     if (window.confirm('Re-arm this row for immediate delivery?')) {
@@ -261,6 +268,16 @@ export function WebhookBacklogPage() {
       window.confirm(`Re-arm all ${counts.dead} dead-letter row(s) for immediate delivery?`)
     ) {
       bulkReplay.mutate();
+    }
+  };
+  const handleBulkPurge = () => {
+    if (
+      counts.dead > 0 &&
+      window.confirm(
+        `Permanently delete all ${counts.dead} dead-letter row(s)? The original events will be lost.`,
+      )
+    ) {
+      bulkPurge.mutate();
     }
   };
 
@@ -312,15 +329,26 @@ export function WebhookBacklogPage() {
                 Real data loss risk — investigate.
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={counts.dead === 0 || bulkReplay.isPending}
-              onClick={handleBulkReplay}
-              data-testid="bulk-replay"
-            >
-              Replay all dead
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={counts.dead === 0 || bulkReplay.isPending}
+                onClick={handleBulkReplay}
+                data-testid="bulk-replay"
+              >
+                Replay all dead
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={counts.dead === 0 || bulkPurge.isPending}
+                onClick={handleBulkPurge}
+                data-testid="bulk-purge"
+              >
+                Purge all dead
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
