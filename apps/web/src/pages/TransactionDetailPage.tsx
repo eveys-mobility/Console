@@ -116,6 +116,16 @@ export function TransactionDetailPage() {
     () => liveSamples.filter((s) => s.measurand === ENERGY_MEASURAND),
     [liveSamples],
   );
+  // Per-phase snapshot derived from the same live buffer. Overlays the
+  // backend's `tx.telemetry.phases` (populated from ClickHouse and
+  // therefore stale/empty for the first tens of seconds of an active
+  // session) with the freshest V / A / W / pf per phase we've observed
+  // on the Kafka tail.
+  const livePhases = useMemo(() => derivePhaseSnapshots(liveSamples), [liveSamples]);
+  const mergedPhases = useMemo(
+    () => mergePhases(tx?.telemetry?.phases ?? null, livePhases),
+    [tx?.telemetry?.phases, livePhases],
+  );
 
   // Live-refresh the two curves the moment a MeterValues arrives.
   // Polling stays as a safety net (best-effort Kafka tail), so the
@@ -182,7 +192,7 @@ export function TransactionDetailPage() {
         samples={mergeSamples(energyQuery.data?.meter_values ?? [], liveEnergy)}
         loading={energyQuery.isLoading && liveEnergy.length === 0}
       />
-      <PhasesCard phases={tx.telemetry?.phases ?? null} />
+      <PhasesCard phases={mergedPhases} />
       {tx.telemetry?.soc.last != null ? <SocCard soc={tx.telemetry.soc} /> : null}
       <TxOcppFramesPanel txId={tx.transaction_id} cpId={tx.cp_id} isOpen={tx.open} />
     </div>
@@ -492,6 +502,76 @@ function buildEnergySeries(samples: MeterValueSample[]): EnergyPoint[] {
   return out.sort((a, b) => a.t - b.t);
 }
 
+// Fold per-phase live samples down to a single latest-value snapshot
+// per phase, shaped to match the backend's `PhaseSnapshot`. Only
+// samples with a phase label contribute — aggregate samples (phase
+// null) feed the Active-power chart's `sum` line, not this card.
+//
+// The `samples` buffer is append-only, so iterating linearly and
+// overwriting yields the newest value per (phase, measurand). Power is
+// normalised to W to match the backend field name (`power_w`); voltage
+// and current are pass-through since their units are already V / A.
+function derivePhaseSnapshots(samples: MeterValueSample[]): Record<string, PhaseSnapshot> {
+  const out: Record<string, PhaseSnapshot> = {};
+  for (const s of samples) {
+    if (!s.phase) continue;
+    const p = out[s.phase] ?? {
+      voltage_v: null,
+      current_a: null,
+      power_w: null,
+      power_factor: null,
+      occurred_at: null,
+    };
+    switch (s.measurand) {
+      case 'Voltage':
+        p.voltage_v = s.value;
+        break;
+      case 'Current.Import':
+        p.current_a = s.value;
+        break;
+      case 'Power.Active.Import':
+        p.power_w = s.unit === 'kW' ? s.value * 1000 : s.value;
+        break;
+      case 'Power.Factor':
+        p.power_factor = s.value;
+        break;
+      default:
+        continue;
+    }
+    if (!p.occurred_at || s.occurred_at > p.occurred_at) {
+      p.occurred_at = s.occurred_at;
+    }
+    out[s.phase] = p;
+  }
+  return out;
+}
+
+// Merge the backend's phase snapshot with the live-derived one, field
+// by field. Live wins where it has data; backend fills the gaps (and
+// carries the final snapshot after the tx closes and live goes
+// silent). Returns null when both sides are empty so PhasesCard falls
+// through to its "no phase telemetry" placeholder.
+function mergePhases(
+  backend: Record<string, PhaseSnapshot> | null,
+  live: Record<string, PhaseSnapshot>,
+): Record<string, PhaseSnapshot> | null {
+  const phases = new Set<string>([...Object.keys(backend ?? {}), ...Object.keys(live)]);
+  if (phases.size === 0) return null;
+  const out: Record<string, PhaseSnapshot> = {};
+  for (const phase of phases) {
+    const b = backend?.[phase];
+    const l = live[phase];
+    out[phase] = {
+      voltage_v: l?.voltage_v ?? b?.voltage_v ?? null,
+      current_a: l?.current_a ?? b?.current_a ?? null,
+      power_w: l?.power_w ?? b?.power_w ?? null,
+      power_factor: l?.power_factor ?? b?.power_factor ?? null,
+      occurred_at: l?.occurred_at ?? b?.occurred_at ?? null,
+    };
+  }
+  return out;
+}
+
 function toKilowatts(v: number, unit: string): number | null {
   switch (unit) {
     case 'W':
@@ -566,6 +646,7 @@ function fmtNum(v: number | null, digits: number): string {
 // against the same measurand key.
 const MEASURAND_FROM_ENUM: Record<string, string> = {
   POWER_ACTIVE_IMPORT: 'Power.Active.Import',
+  POWER_FACTOR: 'Power.Factor',
   ENERGY_ACTIVE_IMPORT_REGISTER: 'Energy.Active.Import.Register',
   ENERGY_ACTIVE_IMPORT_INTERVAL: 'Energy.Active.Import.Interval',
   VOLTAGE: 'Voltage',
