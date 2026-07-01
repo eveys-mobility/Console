@@ -270,4 +270,60 @@ describe('computeStats', () => {
     expect(stats.meanSessionMinutes).toBe(90);
     expect(stats.lastSessionStartedAt).toBe('2026-05-10T11:00:00Z');
   });
+
+  it('folds live meter-register into totalEnergyKwh for open sessions', () => {
+    const rows = [
+      // Closed: 5 kWh
+      row({
+        transaction_id: 1,
+        meter_start_wh: 0,
+        meter_stop_wh: 5000,
+        started_at: '2026-05-10T09:00:00Z',
+        stopped_at: '2026-05-10T10:00:00Z',
+      }),
+      // Open: charger's register currently reads 8000 Wh, started at 0 → 8 kWh live.
+      row({
+        transaction_id: 2,
+        connector_id: 1,
+        open: true,
+        meter_start_wh: 0,
+        started_at: '2026-05-10T11:30:00Z',
+      }),
+      // Open: no live sample yet → contributes zero.
+      row({
+        transaction_id: 3,
+        connector_id: 2,
+        open: true,
+        meter_start_wh: 100,
+        started_at: '2026-05-10T11:45:00Z',
+      }),
+    ];
+    const stats = computeStats(rows, 'all', {
+      now: NOW,
+      currentEnergyWh: (t) => (t.transaction_id === 2 ? 8000 : null),
+    });
+    // 5 (closed) + 8 (live open tx=2) + 0 (no live sample for tx=3) = 13 kWh
+    expect(stats.totalEnergyKwh).toBe(13);
+    expect(stats.activeNow).toBe(2);
+    expect(stats.completedSessions).toBe(1);
+  });
+
+  it('ignores a negative live delta (register < meter_start_wh)', () => {
+    // Charger reported a meter reset mid-session: register briefly reads
+    // below the start value. Clamp to 0 rather than subtract, same
+    // treatment as the corrupt-closed-row case.
+    const rows = [
+      row({
+        transaction_id: 9,
+        open: true,
+        meter_start_wh: 10_000,
+        started_at: '2026-05-10T11:00:00Z',
+      }),
+    ];
+    const stats = computeStats(rows, 'all', {
+      now: NOW,
+      currentEnergyWh: () => 8_000,
+    });
+    expect(stats.totalEnergyKwh).toBe(0);
+  });
 });

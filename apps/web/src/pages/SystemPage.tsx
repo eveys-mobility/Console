@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 
 import type { ChargePointSummary, TransactionSummary } from '@eveys-console/protocol';
 
+import { fetchAggregate } from '@/api/analytics-client';
 import { fetchSysKpis } from '@/api/kpis-client';
 import { fetchSysStatus } from '@/api/sys-client';
 import { MetricTile } from '@/components/MetricTile';
@@ -46,6 +47,31 @@ export function SystemPage() {
     queryKey: ['sys-kpis'],
     queryFn: () => fetchSysKpis(token!),
     refetchInterval: 10_000,
+    enabled: !!token,
+  });
+
+  // Fallback for the 24h-energy tile when the gateway's /sys/kpis
+  // doesn't include `energy_24h_wh` (older gateway deploy — the
+  // rollup lives on a newer version of the endpoint). The
+  // /sys/transactions/aggregate endpoint has been shipping longer,
+  // so summing the last 24 h of hourly buckets gets us the same
+  // number without needing a gateway redeploy. Wall-clock window,
+  // computed at query time — TanStack Query caches by the stable
+  // key `['sys-24h-energy-fallback']` and refetches every 60 s.
+  const energy24hFallback = useQuery({
+    queryKey: ['sys-24h-energy-fallback'],
+    queryFn: async () => {
+      const to = new Date();
+      const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      const resp = await fetchAggregate(token!, {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        bucket: 'hour',
+        group_by: 'none',
+      });
+      return resp.buckets.reduce((sum, b) => sum + b.consumed_wh_total, 0);
+    },
+    refetchInterval: 60_000,
     enabled: !!token,
   });
 
@@ -106,7 +132,7 @@ export function SystemPage() {
   const faults = countFaults(cpRows);
   const faultsCount = kpis?.faulted_count ?? (cpSub.loading ? null : faults.fault);
   const txToday = kpis?.tx_today_count ?? null;
-  const energy24h = kpis?.energy_24h_wh ?? null;
+  const energy24h = kpis?.energy_24h_wh ?? energy24hFallback.data ?? null;
 
   return (
     <div className="space-y-6">
@@ -192,8 +218,10 @@ export function SystemPage() {
         <MetricTile
           testId="metric-energy"
           label="24h energy"
-          value={energy24h === null ? '—' : formatKwh(energy24h)}
-          hint={energy24h === null ? 'rollup not deployed yet' : 'last 24h'}
+          value={
+            energy24h === null ? (energy24hFallback.isPending ? '…' : '—') : formatKwh(energy24h)
+          }
+          hint={energy24h === null ? 'rollup unavailable' : 'last 24h'}
         />
         <MetricTile
           testId="metric-alerts"

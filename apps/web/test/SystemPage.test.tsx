@@ -54,6 +54,19 @@ vi.mock('@/api/kpis-client', () => ({
   fetchSysKpis: vi.fn(async () => kpisStub),
 }));
 
+// /sys/transactions/aggregate stub for the 24h-energy fallback. Default:
+// endpoint reject so the tile stays at the em-dash, matching legacy
+// expectations. Individual tests override the resolver to inject a
+// non-zero total.
+let aggregateStub: (() => Promise<{ buckets: { consumed_wh_total: number }[] }>) | Error =
+  new Error('aggregate stubbed to fail');
+vi.mock('@/api/analytics-client', () => ({
+  fetchAggregate: vi.fn(async () => {
+    if (aggregateStub instanceof Error) throw aggregateStub;
+    return aggregateStub();
+  }),
+}));
+
 interface SubStub<T> {
   loading?: boolean;
   error?: string | null;
@@ -228,6 +241,7 @@ beforeEach(() => {
     energy_24h_wh: null,
     unavailable: true,
   };
+  aggregateStub = new Error('aggregate stubbed to fail');
   vi.setSystemTime(new Date('2026-05-10T12:00:00.000Z'));
 });
 
@@ -414,13 +428,33 @@ describe('SystemPage — headline metrics', () => {
     expect(within(tile).getByText('2')).toBeInTheDocument();
   });
 
-  it('shows an em-dash and an honest hint on the 24h energy tile (no fleet aggregate yet)', async () => {
+  it('shows an em-dash and an honest hint on the 24h energy tile when the aggregate fallback also fails', async () => {
+    // /sys/kpis says no energy and the /sys/transactions/aggregate
+    // fallback rejects — nothing to display.
     renderPage();
-    // The energy rollup isn't backed yet; tile renders an em-dash and
-    // a hint pointing to the missing rollup.
     const tile = await screen.findByTestId('metric-energy');
     expect(within(tile).getByText('—')).toBeInTheDocument();
-    expect(within(tile).getByText(/rollup not deployed/i)).toBeInTheDocument();
+    expect(within(tile).getByText(/rollup unavailable/i)).toBeInTheDocument();
+  });
+
+  it('falls back to /sys/transactions/aggregate when kpis.energy_24h_wh is null', async () => {
+    // Kpis omits energy; aggregate returns three hour-buckets summing
+    // to 12_345 Wh. Tile shows the formatted kWh value.
+    aggregateStub = async () => ({
+      buckets: [
+        { consumed_wh_total: 5000 },
+        { consumed_wh_total: 4000 },
+        { consumed_wh_total: 3345 },
+      ],
+    });
+    renderPage();
+    const tile = await screen.findByTestId('metric-energy');
+    // formatKwh(12_345) → "12.3 kWh" (<10 branch is >=10; 12.345 → "12 kWh")
+    // Look for a kWh value, not the em-dash.
+    const kwhLabel = await within(tile).findByText(/kWh/i);
+    expect(kwhLabel).toBeInTheDocument();
+    expect(within(tile).queryByText('—')).not.toBeInTheDocument();
+    expect(within(tile).getByText(/last 24h/i)).toBeInTheDocument();
   });
 
   it('faults tile links to the fleet view with the faults filter pre-engaged', async () => {
