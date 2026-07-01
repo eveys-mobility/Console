@@ -184,7 +184,7 @@ export function TransactionDetailPage() {
       />
       <PhasesCard phases={tx.telemetry?.phases ?? null} />
       {tx.telemetry?.soc.last != null ? <SocCard soc={tx.telemetry.soc} /> : null}
-      <TxOcppFramesPanel txId={tx.transaction_id} />
+      <TxOcppFramesPanel txId={tx.transaction_id} cpId={tx.cp_id} isOpen={tx.open} />
     </div>
   );
 }

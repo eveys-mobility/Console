@@ -5,6 +5,7 @@
 // refresh button triggers a refetch, (e) clicking a row expands the
 // raw_payload pretty-print pane.
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,7 +33,9 @@ vi.mock('@/lib/ws-context', () => ({
   useConsoleClient: () => ({
     client: {
       rpc: vi.fn(),
-      subscribe: vi.fn(),
+      // useInvalidateOnCpEvents subscribes; return a resolved handle
+      // so the polling-focused tests don't crash on the WS path.
+      subscribe: vi.fn(() => Promise.resolve({ unsubscribe: () => undefined })),
       close: vi.fn(),
       connect: vi.fn(),
     },
@@ -42,7 +45,18 @@ vi.mock('@/lib/ws-context', () => ({
   }),
 }));
 
-import { TxOcppFramesPanel } from '@/components/TxOcppFramesPanel';
+import { TxOcppFramesPanel, type TxOcppFramesPanelProps } from '@/components/TxOcppFramesPanel';
+
+function renderPanel(props: TxOcppFramesPanelProps) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <TxOcppFramesPanel {...props} />
+    </QueryClientProvider>,
+  );
+}
 
 function frame(overrides: Partial<OcppFrame> = {}): OcppFrame {
   return {
@@ -71,7 +85,7 @@ afterEach(() => cleanup());
 describe('TxOcppFramesPanel', () => {
   it('fetches frames for the given txId on mount', async () => {
     nextResponse.value = { transaction_id: 42, frames: [] };
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
 
     await waitFor(() => expect(fetchCalls.length).toBe(1));
     expect(fetchCalls[0].txId).toBe(42);
@@ -81,7 +95,7 @@ describe('TxOcppFramesPanel', () => {
 
   it('renders the empty-state copy when no frames are returned', async () => {
     nextResponse.value = { transaction_id: 42, frames: [] };
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
 
     await waitFor(() =>
       expect(
@@ -107,7 +121,7 @@ describe('TxOcppFramesPanel', () => {
         }),
       ],
     };
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
 
     await waitFor(() => expect(screen.getByTestId('tx-ocpp-frames-rows')).toBeInTheDocument());
     expect(screen.getByText('StartTransaction')).toBeInTheDocument();
@@ -123,7 +137,7 @@ describe('TxOcppFramesPanel', () => {
       frames: [frame()],
     };
     const user = userEvent.setup();
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
 
     await waitFor(() => expect(screen.getByTestId('tx-frame-row-evt-1')).toBeInTheDocument());
     // Pretty-printed JSON isn't visible until expanded.
@@ -137,7 +151,7 @@ describe('TxOcppFramesPanel', () => {
   it('clicking the refresh button triggers a new fetch', async () => {
     nextResponse.value = { transaction_id: 42, frames: [] };
     const user = userEvent.setup();
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
     await waitFor(() => expect(fetchCalls.length).toBe(1));
 
     nextResponse.value = { transaction_id: 42, frames: [frame()] };
@@ -148,7 +162,7 @@ describe('TxOcppFramesPanel', () => {
 
   it('renders the error state when the fetch rejects', async () => {
     nextError.value = new Error('upstream 502');
-    render(<TxOcppFramesPanel txId={42} />);
+    renderPanel({ txId: 42 });
 
     await waitFor(() => {
       expect(screen.getByText(/Couldn't load frames/i)).toBeInTheDocument();

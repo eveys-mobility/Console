@@ -7,55 +7,60 @@
 // transaction itself bounds the result) and no direction filter (the
 // volume per tx is bounded; the operator wants every frame).
 //
-// One-shot fetch with a refresh button. The detail page handles the
-// auto-refresh cadence for active transactions at the page level, so
-// this panel just exposes the manual refresh.
+// Auto-refresh for open transactions: TanStack Query polls every
+// 5 s while `isOpen`, and `useInvalidateOnCpEvents` pushes a refetch
+// the moment a device event arrives on the same cp_id (every OCPP
+// action a charger sends produces a stored frame, so any kind of
+// event is a signal that a new frame exists). Closed transactions
+// stay one-shot; the manual refresh button remains for both.
 
+import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import { fetchTxFrames, type OcppFrame, type TxFramesResponse } from '@/api/frames-client';
+import { fetchTxFrames, type OcppFrame } from '@/api/frames-client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
+import { formatAbsoluteTime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_LIMIT = 1_000;
+const OPEN_TX_REFETCH_MS = 5_000;
 
 export interface TxOcppFramesPanelProps {
   txId: number;
+  /** cp_id of the transaction. When set together with `isOpen`, the
+   *  panel push-refreshes the frame list on every device event that
+   *  arrives for this charger. Optional so consumers that only know
+   *  the txId (e.g. tests) still work. */
+  cpId?: string;
+  /** True while the transaction is open. Enables the 5 s poll and the
+   *  push-refresh path. */
+  isOpen?: boolean;
 }
 
-export function TxOcppFramesPanel({ txId }: TxOcppFramesPanelProps) {
+export function TxOcppFramesPanel({ txId, cpId, isOpen }: TxOcppFramesPanelProps) {
   const { token } = useConsoleClient();
-  const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<
-    | { phase: 'loading' }
-    | { phase: 'ok'; data: TxFramesResponse }
-    | { phase: 'error'; detail: string }
-  >({ phase: 'loading' });
+  const query = useQuery({
+    queryKey: ['tx-ocpp-frames', txId],
+    queryFn: () => fetchTxFrames(token!, txId, { limit: DEFAULT_LIMIT }),
+    enabled: !!token,
+    refetchInterval: isOpen ? OPEN_TX_REFETCH_MS : false,
+  });
 
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    setState({ phase: 'loading' });
-    fetchTxFrames(token, txId, { limit: DEFAULT_LIMIT })
-      .then((data) => {
-        if (!cancelled) setState({ phase: 'ok', data });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setState({
-          phase: 'error',
-          detail: err instanceof Error ? err.message : 'request failed',
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [txId, token, nonce]);
+  const invalidateKeys = useMemo(
+    () => (cpId && isOpen ? [['tx-ocpp-frames', txId]] : []),
+    [cpId, isOpen, txId],
+  );
+  useInvalidateOnCpEvents({
+    cpId: cpId ?? '',
+    queryKeys: invalidateKeys,
+  });
 
+  const frames = query.data?.frames ?? [];
   return (
     <Card data-testid="tx-ocpp-frames-panel">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
@@ -63,7 +68,7 @@ export function TxOcppFramesPanel({ txId }: TxOcppFramesPanelProps) {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setNonce((n) => n + 1)}
+          onClick={() => void query.refetch()}
           aria-label="Refresh OCPP frames"
           data-testid="tx-ocpp-frames-refresh"
         >
@@ -71,22 +76,23 @@ export function TxOcppFramesPanel({ txId }: TxOcppFramesPanelProps) {
         </Button>
       </CardHeader>
       <CardContent className="pt-0">
-        {state.phase === 'loading' ? (
+        {query.isPending ? (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading frames…
           </div>
-        ) : state.phase === 'error' ? (
+        ) : query.error ? (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
-            Couldn&apos;t load frames: {state.detail}
+            Couldn&apos;t load frames:{' '}
+            {query.error instanceof Error ? query.error.message : 'request failed'}
           </div>
-        ) : state.data.frames.length === 0 ? (
+        ) : frames.length === 0 ? (
           <p className="py-6 text-sm text-muted-foreground">
             No OCPP frames recorded for this transaction yet.
           </p>
         ) : (
           <ul className="divide-y" data-testid="tx-ocpp-frames-rows">
-            {state.data.frames.map((f) => (
+            {frames.map((f) => (
               <FrameRow key={f.event_id} frame={f} />
             ))}
           </ul>
@@ -127,7 +133,12 @@ function FrameRow({ frame }: { frame: OcppFrame }) {
         ) : (
           <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
         )}
-        <span className="shrink-0 text-muted-foreground">{shortTime(frame.occurred_at)}</span>
+        <span
+          className="shrink-0 text-muted-foreground"
+          title={formatAbsoluteTime(frame.occurred_at)}
+        >
+          {shortTime(frame.occurred_at)}
+        </span>
         {dirChip}
         <span className="shrink-0 text-muted-foreground">{typeLabel}</span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -159,10 +170,15 @@ function ocppTypeLabel(t: number): string {
   }
 }
 
+// HH:mm:ss in the operator's local timezone. A single tx is bounded
+// so same-day disambig isn't needed inside one session; the hover
+// title carries the full local timestamp + zone offset for anyone
+// correlating with UTC-stored logs.
 function shortTime(iso: string): string {
-  // HH:mm:ss is enough — a single tx is bounded; same-day disambig
-  // isn't needed inside one session.
-  return iso.slice(11, 19);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function prettyJson(raw: string): string {
