@@ -123,6 +123,10 @@ export const meterSample = z.object({
   transaction_id: z.number().int().nullable(),
   connector_id: z.number().int().nonnegative(),
   measurand: z.string(),
+  // 'L1' / 'L2' / 'L3' / 'N' / null. Null = aggregate sample, no
+  // per-phase breakdown. Needed by the chart on the transaction
+  // detail page to plot per-phase lines from the live tail.
+  phase: z.string().nullable(),
   value: z.number(),
   unit: z.string().nullable(),
   recorded_at: isoTimestamp,

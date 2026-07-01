@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts';
 
 import {
@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer } from '@/components/ui/chart';
 import { TxOcppFramesPanel } from '@/components/TxOcppFramesPanel';
 import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
+import { useSubscription } from '@/hooks/use-subscription';
 import { formatUptime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 
@@ -95,6 +96,27 @@ export function TransactionDetailPage() {
     refetchInterval: tx?.open ? OPEN_TX_REFETCH_MS : false,
   });
 
+  // Live-tail samples merged on top of the REST snapshot. ClickHouse
+  // (which the REST endpoint hits) has ingest lag — the chart would
+  // sit at "No samples in this window" for the first 10-30 s of a
+  // live session even though MeterValues are arriving over Kafka.
+  // Subscribe to `meter-history` for this charger and accumulate the
+  // samples that belong to THIS transaction; the chart sees both
+  // REST + live as one set.
+  const liveSamples = useLiveMeterSamples({
+    cpId: tx?.cp_id,
+    transactionId: tx?.transaction_id,
+    enabled: !!tx?.open,
+  });
+  const livePower = useMemo(
+    () => liveSamples.filter((s) => s.measurand === POWER_MEASURAND),
+    [liveSamples],
+  );
+  const liveEnergy = useMemo(
+    () => liveSamples.filter((s) => s.measurand === ENERGY_MEASURAND),
+    [liveSamples],
+  );
+
   // Live-refresh the two curves the moment a MeterValues arrives.
   // Polling stays as a safety net (best-effort Kafka tail), so the
   // 5 s cadence remains the floor; this just makes the common case
@@ -152,8 +174,14 @@ export function TransactionDetailPage() {
   return (
     <div className="space-y-4">
       <Header tx={tx} />
-      <PowerChart samples={powerQuery.data?.meter_values ?? []} loading={powerQuery.isLoading} />
-      <EnergyChart samples={energyQuery.data?.meter_values ?? []} loading={energyQuery.isLoading} />
+      <PowerChart
+        samples={mergeSamples(powerQuery.data?.meter_values ?? [], livePower)}
+        loading={powerQuery.isLoading && livePower.length === 0}
+      />
+      <EnergyChart
+        samples={mergeSamples(energyQuery.data?.meter_values ?? [], liveEnergy)}
+        loading={energyQuery.isLoading && liveEnergy.length === 0}
+      />
       <PhasesCard phases={tx.telemetry?.phases ?? null} />
       {tx.telemetry?.soc.last != null ? <SocCard soc={tx.telemetry.soc} /> : null}
       <TxOcppFramesPanel txId={tx.transaction_id} />
@@ -527,4 +555,91 @@ function formatTick(t: number): string {
 function fmtNum(v: number | null, digits: number): string {
   if (v == null) return '—';
   return v.toFixed(digits);
+}
+
+// ---- live meter-history tail ---------------------------------------------
+
+// Convert protobuf-enum-style measurand names (`POWER_ACTIVE_IMPORT`,
+// `ENERGY_ACTIVE_IMPORT_REGISTER`) — what the meter-history WS
+// channel emits — into OCPP-1.6 wire form (`Power.Active.Import`,
+// `Energy.Active.Import.Register`) so REST + live samples merge
+// against the same measurand key.
+const MEASURAND_FROM_ENUM: Record<string, string> = {
+  POWER_ACTIVE_IMPORT: 'Power.Active.Import',
+  ENERGY_ACTIVE_IMPORT_REGISTER: 'Energy.Active.Import.Register',
+  ENERGY_ACTIVE_IMPORT_INTERVAL: 'Energy.Active.Import.Interval',
+  VOLTAGE: 'Voltage',
+  CURRENT_IMPORT: 'Current.Import',
+  SOC: 'SoC',
+  TEMPERATURE: 'Temperature',
+  FREQUENCY: 'Frequency',
+};
+
+function normaliseMeasurand(m: string): string {
+  return MEASURAND_FROM_ENUM[m] ?? m;
+}
+
+function useLiveMeterSamples({
+  cpId,
+  transactionId,
+  enabled,
+}: {
+  cpId: string | undefined;
+  transactionId: number | undefined;
+  enabled: boolean;
+}): MeterValueSample[] {
+  // useSubscription requires a non-null params record; pass an empty
+  // cp_id when we shouldn't subscribe and gate the accumulation
+  // below on `enabled` so the closed-tx render never appends.
+  const sub = useSubscription('meter-history', { cp_id: enabled && cpId ? cpId : '' });
+  const [samples, setSamples] = useState<MeterValueSample[]>([]);
+  const lastSeenRef = useRef<unknown>(null);
+
+  // Reset the buffer when the tx or charger changes — otherwise
+  // navigating between transactions would carry stale samples.
+  useEffect(() => {
+    setSamples([]);
+    lastSeenRef.current = null;
+  }, [cpId, transactionId]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const delta = sub.lastDelta;
+    if (!delta || delta.kind !== 'meter-history') return;
+    if (lastSeenRef.current === delta.append) return;
+    lastSeenRef.current = delta.append;
+    const s = delta.append;
+    if (s.transaction_id == null || s.transaction_id !== transactionId) return;
+    setSamples((prev) => [
+      ...prev,
+      {
+        cp_id: s.cp_id,
+        connector_id: s.connector_id,
+        transaction_id: s.transaction_id,
+        occurred_at: s.recorded_at,
+        measurand: normaliseMeasurand(s.measurand),
+        phase: s.phase ?? null,
+        unit: s.unit ?? '',
+        value: s.value,
+      },
+    ]);
+  }, [sub.lastDelta, enabled, transactionId]);
+
+  return samples;
+}
+
+// Merge REST + live samples, de-duping on (occurred_at, measurand,
+// phase) so an overlap (REST poll picks up a sample also seen on the
+// live tail) doesn't double-plot.
+function mergeSamples(rest: MeterValueSample[], live: MeterValueSample[]): MeterValueSample[] {
+  if (live.length === 0) return rest;
+  const seen = new Set<string>();
+  const out: MeterValueSample[] = [];
+  for (const s of [...rest, ...live]) {
+    const k = `${s.occurred_at}|${s.measurand}|${s.phase ?? ''}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
 }

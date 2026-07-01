@@ -372,6 +372,7 @@ const meterHistory: QueryResolver = {
         transaction_id: transactionId,
         connector_id: connectorId,
         measurand: enumToString(s.measurand) ?? 'Energy.Active.Import.Register',
+        phase: enumToString(s.phase),
         value,
         unit: enumToString(s.unit),
         recorded_at: recordedAt,
