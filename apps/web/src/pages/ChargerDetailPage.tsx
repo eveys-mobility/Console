@@ -254,16 +254,6 @@ function Header({ cp }: { cp: ChargePointSummary }) {
         <Badge variant="secondary" className="font-mono text-xs">
           last_status: {cp.last_status ?? '—'}
         </Badge>
-        {cp.last_heartbeat_at ? (
-          <Badge variant="secondary" className="font-mono text-xs" data-testid="header-heartbeat">
-            heartbeat: <TimeAgo iso={cp.last_heartbeat_at} className="ml-1" />
-          </Badge>
-        ) : null}
-        {cp.pod_id ? (
-          <Badge variant="secondary" className="font-mono text-xs" title={cp.pod_id}>
-            pod: {cp.pod_id.length > 12 ? `${cp.pod_id.slice(0, 12)}…` : cp.pod_id}
-          </Badge>
-        ) : null}
         {cp.online && cp.last_boot_at ? (
           <Badge
             variant="secondary"
