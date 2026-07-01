@@ -24,6 +24,10 @@ import { fetchAllChargePointTransactions, type TransactionRow } from '@/api/tran
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
+import {
+  liveTelemetryKey,
+  useLiveTransactionTelemetry,
+} from '@/hooks/use-live-transaction-telemetry';
 import { computeStats, type ChargerStats, type StatsWindow } from '@/lib/stats';
 import { formatDurationMinutes, formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
@@ -62,10 +66,19 @@ export function StatisticsCard({ cpId }: Props) {
     kinds: ['tx-started', 'tx-stopped'],
   });
 
+  // Live meter-register readings for currently-open sessions on this
+  // charger. Fed into `computeStats` so the Total energy tile counts
+  // delivered-so-far kWh on active sessions instead of freezing at
+  // the last closed session's total.
+  const live = useLiveTransactionTelemetry(cpId);
+
   const stats: ChargerStats | null = useMemo(() => {
     if (!query.data) return null;
-    return computeStats(query.data.transactions, windowChoice);
-  }, [query.data, windowChoice]);
+    return computeStats(query.data.transactions, windowChoice, {
+      currentEnergyWh: (t) =>
+        live.get(liveTelemetryKey(t.connector_id, t.transaction_id))?.latest_wh ?? null,
+    });
+  }, [query.data, windowChoice, live]);
 
   return (
     <Card>

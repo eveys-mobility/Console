@@ -47,11 +47,30 @@ const WINDOW_MS: Record<Exclude<StatsWindow, 'all'>, number> = {
   '30d': 30 * 24 * 60 * 60 * 1000,
 };
 
+export interface ComputeStatsOptions {
+  /** Anchor for window arithmetic. Defaults to `new Date()`; tests
+   *  inject a fixed clock. */
+  now?: Date;
+  /** Resolver that, given an open session, returns the latest live
+   *  meter-register value in Wh (i.e. what the charger's energy
+   *  register currently reads). When present, `totalEnergyKwh`
+   *  includes `Math.max(0, currentWh - meter_start_wh)` for each open
+   *  session in the window, so the tile reflects delivered-so-far
+   *  energy instead of freezing at the last completed session's total.
+   *  Return null to skip contribution — e.g. no live sample yet for
+   *  a just-started session. */
+  currentEnergyWh?: (t: TransactionRow) => number | null;
+}
+
 export function computeStats(
   transactions: TransactionRow[],
   window: StatsWindow,
-  now: Date = new Date(),
+  opts: ComputeStatsOptions | Date = {},
 ): ChargerStats {
+  // Preserve the earlier `now: Date` positional signature so existing
+  // tests that pass a raw Date still work.
+  const options: ComputeStatsOptions = opts instanceof Date ? { now: opts } : opts;
+  const now = options.now ?? new Date();
   const cutoff = window === 'all' ? null : now.getTime() - WINDOW_MS[window];
 
   // Filter by `started_at` — the documented semantics. A session that
@@ -79,8 +98,16 @@ export function computeStats(
 
     if (t.open) {
       active += 1;
-      // Open sessions don't contribute to energy or mean-duration —
-      // their stop is unknown.
+      // Open sessions: fold in delivered-so-far energy from the live
+      // meter-register when the caller supplied a resolver. Without
+      // one, or before the first live sample, they contribute zero —
+      // same as before. Mean duration deliberately stays over closed
+      // sessions only (stop is still unknown).
+      const currentWh = options.currentEnergyWh?.(t);
+      if (currentWh != null) {
+        const deltaWh = currentWh - t.meter_start_wh;
+        if (deltaWh > 0) totalEnergyWh += deltaWh;
+      }
       continue;
     }
 

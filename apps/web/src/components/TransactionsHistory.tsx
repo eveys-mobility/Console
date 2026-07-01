@@ -18,7 +18,7 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import {
   fetchChargePointTransactions,
@@ -38,7 +38,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useInvalidateOnCpEvents } from '@/hooks/use-invalidate-on-cp-events';
-import { useSubscription } from '@/hooks/use-subscription';
+import {
+  liveTelemetryKey,
+  useLiveTransactionTelemetry,
+  type LiveTelemetry,
+} from '@/hooks/use-live-transaction-telemetry';
 import { formatAbsoluteTime, formatRelativeTime, formatUptime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 
@@ -49,77 +53,6 @@ interface Props {
 const REFETCH_MS = 5000;
 const DEFAULT_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
-
-// Latest live values per (connector_id, transaction_id). Populated
-// from the meter-history subscription on the same cp_id; the open
-// transaction rows pick the matching slot to render kW / SoC / Wh
-// without waiting for the 5s poll to re-fetch.
-interface LiveTelemetry {
-  /** kW computed from POWER_ACTIVE_IMPORT (W) for the active connector. */
-  power_kw: number | null;
-  /** Battery state of charge, 0–100. */
-  soc_pct: number | null;
-  /** Latest energy-register Wh value. The row's consumed_wh =
-   *  (latest_wh - meter_start_wh) when present. */
-  latest_wh: number | null;
-  /** When the latest sample arrived — used to flash the row briefly
-   *  so a watching operator sees the update. */
-  updated_at: string;
-}
-
-const LIVE_INITIAL: LiveTelemetry = {
-  power_kw: null,
-  soc_pct: null,
-  latest_wh: null,
-  updated_at: '',
-};
-
-function makeKey(connectorId: number, txId: number): string {
-  return `${connectorId}:${txId}`;
-}
-
-function useLiveTelemetry(cpId: string): Map<string, LiveTelemetry> {
-  const sub = useSubscription('meter-history', { cp_id: cpId });
-  const [byKey, setByKey] = useState<Map<string, LiveTelemetry>>(() => new Map());
-  const lastSeenRef = useRef<unknown>(null);
-
-  useEffect(() => {
-    setByKey(new Map());
-    lastSeenRef.current = null;
-  }, [cpId]);
-
-  useEffect(() => {
-    const delta = sub.lastDelta;
-    if (!delta || delta.kind !== 'meter-history') return;
-    if (lastSeenRef.current === delta.append) return;
-    lastSeenRef.current = delta.append;
-    const sample = delta.append;
-    if (sample.transaction_id == null) return;
-    const key = makeKey(sample.connector_id, sample.transaction_id);
-    setByKey((prev) => {
-      const next = new Map(prev);
-      const cur = next.get(key) ?? LIVE_INITIAL;
-      const updated: LiveTelemetry = { ...cur, updated_at: sample.recorded_at };
-      switch (sample.measurand) {
-        case 'POWER_ACTIVE_IMPORT':
-          updated.power_kw = sample.value / 1000;
-          break;
-        case 'SOC':
-          updated.soc_pct = sample.value;
-          break;
-        case 'ENERGY_ACTIVE_IMPORT_REGISTER':
-          updated.latest_wh = sample.value;
-          break;
-        default:
-          return prev;
-      }
-      next.set(key, updated);
-      return next;
-    });
-  }, [sub.lastDelta]);
-
-  return byKey;
-}
 
 export function TransactionsHistory({ cpId }: Props) {
   const { token } = useConsoleClient();
@@ -153,7 +86,7 @@ export function TransactionsHistory({ cpId }: Props) {
 
   // Subscribe to live MeterValues for the cp_id so open rows can show
   // power / SoC / consumed without waiting for the 5 s poll.
-  const live = useLiveTelemetry(cpId);
+  const live = useLiveTransactionTelemetry(cpId);
 
   const onPageSizeChange = (n: number) => {
     setPageSize(n);
@@ -226,7 +159,7 @@ function TransactionsTable({
       <TableBody>
         {rows.map((row) => {
           const t = row.open
-            ? (live.get(makeKey(row.connector_id, row.transaction_id)) ?? null)
+            ? (live.get(liveTelemetryKey(row.connector_id, row.transaction_id)) ?? null)
             : null;
           // Closed rows use the meter-stop delta. Open rows prefer
           // the live latest_wh (post-START), falling back to the row's
