@@ -3,12 +3,28 @@
 [![CI](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml/badge.svg)](https://github.com/eveys-mobility/Console/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-Sign-in protected operator console for the
-[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway.
-React + shadcn/ui + TanStack Router on the front end; Fastify with
-one WebSocket per tab carrying snapshot + tail subscriptions on the
-server. Bcrypt'd username/password with a client-side proof-of-work
-CAPTCHA; short-lived JWTs after that.
+Live operator console for the
+[eveys-mobility/OCPP](https://github.com/eveys-mobility/OCPP) gateway
+— the single tab a fleet operator keeps open to inspect, diagnose,
+and control OCPP chargers in production.
+
+Everything updates in the moment. A single WebSocket per tab carries
+snapshot + tail subscriptions off the gateway's Kafka event stream,
+so a StatusNotification, MeterValues sample, or transaction stop
+appears on screen the moment the gateway accepts it — no refresh, no
+polling. The landing dashboard summarises fleet health; per-charger
+pages carry connector state, live kW-per-phase and cumulative kWh
+charts, session history, and a verbatim OCPP frame log; runtime
+configuration lives on `/sys/config` instead of a redeploy; firing
+alerts stream in from Alertmanager on `/sys/alerts`. The Console
+never speaks OCPP itself and holds no charger state of its own —
+every mutation is a REST call to the gateway.
+
+Stack: React + shadcn/ui + TanStack Router on the front; Fastify
+with a kafkajs tail on the server. Access is behind a bcrypt'd
+username/password with a client-side proof-of-work CAPTCHA and
+short-lived JWTs after that — enough to make a public deployment
+defensible without wiring in an IdP.
 
 ---
 
@@ -79,50 +95,6 @@ the updater asks for confirmation before recreating containers;
 Updating the gateway is a separate operation that lives in the
 [gateway repo](https://github.com/eveys-mobility/OCPP) (`make update`
 there).
-
-## What's where
-
-The operator dashboard at `/` is the landing page — a summary of
-firing alerts, headline metrics (chargers online, sessions in
-flight, faults), and service status. Everything else is reachable
-from the sidebar:
-
-- **`/inspect/charge-points`** lists the fleet with AC/DC + power
-  chips and a faults filter. Each row links to a per-charger detail
-  page that shows connector state, active and recent sessions,
-  diagnostics history, and a live device-event feed.
-- **`/inspect/transactions`** is the cross-fleet session view with
-  date and stop-reason filters. Click into a transaction for a live
-  detail page — kW per phase and cumulative kWh charts that refresh
-  the moment a MeterValues arrives.
-- **`/sys/alerts`** is the operator's view of Prometheus and
-  Alertmanager: firing alerts, active silences, channels for Slack /
-  email / webhook receivers, and inline CRUD for a Console-managed
-  rule group with `promtool check rules` running before every save.
-- **`/sys/authorizations`** is the operator-driven charger
-  allowlist. Pending registrations bubble up here for approval before
-  a new charger is accepted into the fleet.
-- **`/sys/ocpp-config`** lets the operator tune the keys the
-  gateway pushes via ChangeConfiguration after every Accepted
-  BootNotification — heartbeat interval, connection timeout, the
-  transaction retry knobs. Edits apply on the next boot of each
-  charger; no gateway restart is needed.
-- **`/sys/config`** is two tabs of runtime overrides — one for the
-  Console's own keys (persisted to disk), one for the gateway's
-  per-pod override map (cleared on gateway restart).
-
-The realtime layer is a single WebSocket per tab. The browser
-subscribes to one or more named queries (`charge-points`,
-`transactions-active`, `meter-history`, etc.) and gets back a
-snapshot followed by deltas; the server fans the gateway's Kafka
-topics into deltas and re-fetches REST rows when a topic event
-mutates them.
-
-Times in the UI render in the operator's local zone with a
-`±HH:MM` offset suffix on the hover tooltip (e.g.
-`2026-06-30 21:36:29 +03:00`). The offset stays in the string so a
-screenshot of the UI is still unambiguous when correlated with the
-UTC log lines the gateway emits.
 
 ## Configuration
 
