@@ -1,8 +1,10 @@
-// Device-authorization console (#0013). Operators see pending devices
-// here and Authorize / Reject them. The gateway's list endpoint returns
-// only the pending set — Redis-backed with a 1 h TTL — so there's no
-// "decided" tab; rejected / authorized / revoked outcomes live in the
-// gateway's own audit log.
+// Device-authorization console. Operators see pending devices here and
+// Authorize them. The gateway's list endpoint returns only the pending
+// set — Redis-backed — so this page shows what's waiting for a
+// decision. Reject was removed: dropping the pending row doesn't
+// actually block reconnect (the same cp_id walks straight back onto
+// the queue), so it was a confusing action; the IP rate limit is the
+// real block.
 //
 // Pending list polls every 5 s so a new charger shows up without
 // requiring a manual refresh; SSE-pushed updates are a follow-up.
@@ -13,7 +15,6 @@ import { ShieldCheck } from 'lucide-react';
 import {
   authorizeDevice,
   listAuthorizations,
-  rejectAuthorization,
   type PendingAuthorization,
 } from '@/api/authorizations-client';
 import { Button } from '@/components/ui/button';
@@ -43,18 +44,10 @@ interface RowsProps {
   isLoading: boolean;
   emptyHint: string;
   onAuthorize: (cpId: string) => void;
-  onReject: (cpId: string) => void;
   busy: Set<string>;
 }
 
-function AuthorizationsTable({
-  rows,
-  isLoading,
-  emptyHint,
-  onAuthorize,
-  onReject,
-  busy,
-}: RowsProps) {
+function AuthorizationsTable({ rows, isLoading, emptyHint, onAuthorize, busy }: RowsProps) {
   return (
     <section className="rounded-lg border bg-card">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -66,23 +59,20 @@ function AuthorizationsTable({
           <TableRow>
             <TableHead>cp_id</TableHead>
             <TableHead>First seen</TableHead>
-            <TableHead>Last seen</TableHead>
             <TableHead>Attempts</TableHead>
-            <TableHead>Identity</TableHead>
-            <TableHead>Source</TableHead>
             <TableHead className="text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-sm text-muted-foreground">
+              <TableCell colSpan={4} className="text-sm text-muted-foreground">
                 Loading…
               </TableCell>
             </TableRow>
           ) : rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-sm text-muted-foreground">
+              <TableCell colSpan={4} className="text-sm text-muted-foreground">
                 {emptyHint}
               </TableCell>
             </TableRow>
@@ -93,42 +83,16 @@ function AuthorizationsTable({
                 <TableCell className="text-sm text-muted-foreground">
                   {formatTime(row.first_seen_at)}
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {formatTime(row.last_seen_at)}
-                </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{row.attempts}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  <div>{row.vendor ?? '—'}</div>
-                  <div className="truncate" title={row.model ?? ''}>
-                    {row.model ?? '—'}
-                  </div>
-                  <div className="font-mono">{row.firmware ?? '—'}</div>
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  <div className="font-mono">{row.peer_ip ?? '—'}</div>
-                  <div className="truncate" title={row.user_agent ?? ''}>
-                    {row.user_agent ?? '—'}
-                  </div>
-                </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="default"
-                      disabled={busy.has(row.cp_id)}
-                      onClick={() => onAuthorize(row.cp_id)}
-                    >
-                      Authorize
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy.has(row.cp_id)}
-                      onClick={() => onReject(row.cp_id)}
-                    >
-                      Reject
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={busy.has(row.cp_id)}
+                    onClick={() => onAuthorize(row.cp_id)}
+                  >
+                    Authorize
+                  </Button>
                 </TableCell>
               </TableRow>
             ))
@@ -160,13 +124,8 @@ export function AuthorizationsPage() {
     mutationFn: (cpId: string) => authorizeDevice(token!, cpId),
     onSettled: () => invalidate(),
   });
-  const reject = useMutation({
-    mutationFn: (cpId: string) => rejectAuthorization(token!, cpId),
-    onSettled: () => invalidate(),
-  });
 
   if (authorize.isPending && authorize.variables) busy.add(authorize.variables);
-  if (reject.isPending && reject.variables) busy.add(reject.variables);
 
   const pendingRows = pending.data ?? [];
 
@@ -177,9 +136,10 @@ export function AuthorizationsPage() {
         <div>
           <h2 className="text-xl font-semibold">Device Authorizations</h2>
           <p className="text-sm text-muted-foreground">
-            New chargers appear here while pending (1-hour window). Authorize known devices; reject
-            anything you don&apos;t recognize. The gateway retains the outcome in its own audit log
-            — this page only lists what&apos;s still waiting for a decision.
+            New chargers appear here while pending. Authorize known devices; unknown ones age out
+            automatically. Rows here are only the identifiers the gateway can promise are correct —
+            vendor / model / firmware from a first BootNotification are shown on the fleet detail
+            page after authorization, not here.
           </p>
         </div>
       </div>
@@ -189,7 +149,6 @@ export function AuthorizationsPage() {
         isLoading={pending.isLoading}
         emptyHint="No devices waiting for authorization."
         onAuthorize={(cpId) => authorize.mutate(cpId)}
-        onReject={(cpId) => reject.mutate(cpId)}
         busy={busy}
       />
     </div>
