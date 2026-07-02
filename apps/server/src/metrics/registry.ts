@@ -134,7 +134,7 @@ export type GatewayOp =
   | 'command_get_log'
   | 'command_data_transfer'
   | 'list_authorizations'
-  | 'approve_authorization'
+  | 'authorize_device'
   | 'reject_authorization'
   | 'revoke_authorization'
   | 'list_webhook_backlog'

@@ -48,9 +48,8 @@ export async function registerSysAuthorizationsRoute(app: FastifyApp, deps: Rout
   app.get(
     '/sys/authorizations',
     { preHandler: requireAuth },
-    async (req: { query?: { status?: string; limit?: string } }): Promise<ListResponse> => {
-      const params: { status?: string; limit?: number } = {};
-      if (req.query?.status) params.status = req.query.status;
+    async (req: { query?: { limit?: string } }): Promise<ListResponse> => {
+      const params: { limit?: number } = {};
       if (req.query?.limit !== undefined) params.limit = Number(req.query.limit);
       try {
         const raw = (await deps.gateway.listAuthorizations(params)) as Partial<ListResponse>;
@@ -65,11 +64,11 @@ export async function registerSysAuthorizationsRoute(app: FastifyApp, deps: Rout
   );
 
   app.post(
-    '/sys/authorizations/:cpId/approve',
+    '/sys/authorizations/:cpId/authorize',
     { preHandler: requireAuth },
     async (req: { params: { cpId: string } }, reply: Reply) => {
       try {
-        return await deps.gateway.approveAuthorization(req.params.cpId);
+        return await deps.gateway.authorizeDevice(req.params.cpId);
       } catch (err) {
         return gatewayError(reply, err);
       }

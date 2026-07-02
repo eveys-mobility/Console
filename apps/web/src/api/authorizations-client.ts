@@ -1,24 +1,29 @@
 // Device-authorization API client (#0013).
 // Talks to the Console server's /sys/authorizations proxy, which forwards
 // to the gateway's /api/v1/authorizations surface.
+//
+// The gateway only exposes the pending set (Redis-backed, 1 h TTL). Once
+// a device is authorized / rejected / revoked, the row leaves this list —
+// the gateway records the decision in its own log and the UI shows nothing
+// but the pending queue.
 
 import { CONSOLE_BASE_URL as BASE } from '@/lib/console-url';
 
-export type AuthorizationStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
-
-export interface Authorization {
+export interface PendingAuthorization {
   cp_id: string;
-  status: AuthorizationStatus;
-  requested_at: string;
-  decided_at: string | null;
-  decided_by: string | null;
-  last_attempt_ip: string | null;
-  last_attempt_user_agent: string | null;
-  last_attempt_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  peer_ip: string | null;
+  user_agent: string | null;
+  vendor: string | null;
+  model: string | null;
+  firmware: string | null;
+  serial_number: string | null;
+  attempts: number;
 }
 
 interface ListResponse {
-  items: Authorization[];
+  items: PendingAuthorization[];
 }
 
 function authHeaders(token: string): Record<string, string> {
@@ -27,10 +32,9 @@ function authHeaders(token: string): Record<string, string> {
 
 export async function listAuthorizations(
   token: string,
-  params: { status?: AuthorizationStatus; limit?: number } = {},
-): Promise<Authorization[]> {
+  params: { limit?: number } = {},
+): Promise<PendingAuthorization[]> {
   const qs = new URLSearchParams();
-  if (params.status) qs.set('status', params.status);
   if (params.limit !== undefined) qs.set('limit', String(params.limit));
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   const res = await fetch(`${BASE}/sys/authorizations${suffix}`, {
@@ -44,18 +48,18 @@ export async function listAuthorizations(
 async function decide(
   token: string,
   cpId: string,
-  action: 'approve' | 'reject' | 'revoke',
-): Promise<Authorization> {
+  action: 'authorize' | 'reject' | 'revoke',
+): Promise<unknown> {
   const res = await fetch(`${BASE}/sys/authorizations/${encodeURIComponent(cpId)}/${action}`, {
     method: 'POST',
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error(`authorizations.${action} ${res.status}`);
-  return (await res.json()) as Authorization;
+  return res.json();
 }
 
-export function approveAuthorization(token: string, cpId: string) {
-  return decide(token, cpId, 'approve');
+export function authorizeDevice(token: string, cpId: string) {
+  return decide(token, cpId, 'authorize');
 }
 
 export function rejectAuthorization(token: string, cpId: string) {
