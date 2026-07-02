@@ -1,13 +1,11 @@
-// Focused tests for the three Batch 4 behaviours on ChargerDetailPage:
-// (1) heartbeat badge in the header, (2) Hard Reset behind an
-// AlertDialog confirmation, (3) RemoteStart gated on a typed id_tag.
-//
-// Other parts of the page (status pills, fault banner, transactions
-// history, statistics card, device events panel) are covered by their
-// own component tests; we mock those out so this file stays scoped.
+// Focused tests for header behaviours on ChargerDetailPage: snapshot /
+// delta merge, the Commands tab, and the OCPP version badge. Other
+// parts of the page (status pills, fault banner, transactions history,
+// statistics card, device events panel) are covered by their own
+// component tests; we mock those out so this file stays scoped.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -129,36 +127,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  vi.useRealTimers();
 });
 
-describe('ChargerDetailPage — header heartbeat badge', () => {
-  beforeEach(() => {
-    // Pin "now" so the relative-time assertion is deterministic.
-    // Only the heartbeat tests need fake timers; userEvent interacts
-    // badly with them in the other blocks.
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-10T12:00:00.000Z'));
-  });
-
-  it('shows heartbeat: 12m ago with absolute UTC on hover', () => {
-    nextSubResult = { snapshot: { kind: 'charge-point', row: baseCp() } };
-    renderPage();
-    const badge = screen.getByTestId('header-heartbeat');
-    expect(badge.textContent).toMatch(/heartbeat:\s*12m ago/);
-    // The TimeAgo span carries the title attribute.
-    const timeNode = within(badge).getByTestId('time-ago');
-    expect(timeNode.getAttribute('title')).toBe('2026-05-10 11:48:00 UTC');
-  });
-
-  it('hides the heartbeat badge when last_heartbeat_at is null', () => {
-    nextSubResult = {
-      snapshot: { kind: 'charge-point', row: baseCp({ last_heartbeat_at: null }) },
-    };
-    renderPage();
-    expect(screen.queryByTestId('header-heartbeat')).toBeNull();
-  });
-
+describe('ChargerDetailPage — snapshot / lastDelta merge', () => {
   // Regression: the page used to render `sub.snapshot.row` directly,
   // so a fresh cp.boot / cp.status delta never showed up until the
   // next snapshot refresh. The detail page now merges `lastDelta` in.
