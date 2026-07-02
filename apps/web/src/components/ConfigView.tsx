@@ -6,6 +6,7 @@ import {
   Info,
   Loader2,
   Lock,
+  RefreshCw,
   RotateCcw,
   Save,
   Search,
@@ -83,6 +84,7 @@ const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] as const;
 
 export function ConfigView({ scope, title, queryKey, fetcher, filters }: ConfigViewProps) {
   const { token } = useConsoleClient();
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [restartFilter, setRestartFilter] = useState<RestartImpact | 'all'>('all');
   const [sensitiveOnly, setSensitiveOnly] = useState(false);
@@ -93,6 +95,15 @@ export function ConfigView({ scope, title, queryKey, fetcher, filters }: ConfigV
     queryFn: () => fetcher(token!),
     enabled: !!token,
   });
+
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: [queryKey] });
+    if (scope === 'gateway') {
+      void qc.invalidateQueries({ queryKey: ['sys-gateway-admin-config'] });
+    } else {
+      void qc.invalidateQueries({ queryKey: ['sys-console-admin-config'] });
+    }
+  };
 
   // Gateway-only: pull the runtime-override allowlist + current
   // overrides. The Gateway tab needs both to render inline editors.
@@ -227,6 +238,17 @@ export function ConfigView({ scope, title, queryKey, fetcher, filters }: ConfigV
               <Eye className="mr-1 h-4 w-4" /> Show sensitive placeholder
             </>
           )}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refresh}
+          disabled={q.isFetching}
+          aria-label="Refresh configuration"
+          title="Re-fetch the current configuration from the server"
+        >
+          <RefreshCw className={cn('mr-1 h-4 w-4', q.isFetching && 'animate-spin')} />
+          Refresh
         </Button>
       </div>
 
@@ -502,13 +524,6 @@ function ConfigCard({
   consoleAdminConfig: ConsoleAdminConfig | undefined;
   configQueryKey: string;
 }) {
-  const display =
-    entry.sensitive && entry.value
-      ? revealed
-        ? entry.value
-        : '•'.repeat(8)
-      : entry.value || '<empty>';
-
   // Gateway side: allowlist is a map of key → description.
   // Console side: server flags each entry directly with `overridable`.
   const gatewayAllowlist = adminConfig?.allowlist;
@@ -530,6 +545,24 @@ function ConfigCard({
   // Avoid unused-variable warnings when one of the admin-data sources
   // is irrelevant for the current scope.
   void consoleAdminConfig;
+
+  // The gateway's /sys/config endpoint reports `getattr(settings, name)`,
+  // which is the env-driven value and does NOT consult the runtime-override
+  // singleton. So on the Gateway tab an allowlisted key with an active
+  // override arrives as "" (env unset) with the `override` badge lit but
+  // no value to show. Merge the override from /admin/config.overrides here
+  // so the display and the editor pre-fill both reflect what the gateway
+  // is actually using.
+  const effectiveEntry =
+    hasOverride && isGatewayAllowlisted && gatewayOverrides
+      ? { ...entry, value: stringifyOverride(gatewayOverrides[entry.key]) }
+      : entry;
+  const display =
+    effectiveEntry.sensitive && effectiveEntry.value
+      ? revealed
+        ? effectiveEntry.value
+        : '•'.repeat(8)
+      : effectiveEntry.value || '<empty>';
 
   // Editable rows stay open by default — the operator's intent is to
   // see the form. Read-only rows collapse so 111 entries don't form a
@@ -593,7 +626,7 @@ function ConfigCard({
 
           {isAllowlisted ? (
             <InlineEditor
-              entry={entry}
+              entry={effectiveEntry}
               description={allowlistDescription ?? entry.description}
               hasOverride={hasOverride}
               scope={scope}
@@ -614,6 +647,17 @@ function ConfigCard({
 function truncateForHeader(s: string): string {
   if (s.length <= 32) return s;
   return `${s.slice(0, 24)}…${s.slice(-6)}`;
+}
+
+/** Match the gateway's `_stringify` shape so a merged-in override value
+ *  renders identically to the env-driven value it replaces. Booleans
+ *  become "true"/"false"; lists become CSV; everything else String()s. */
+function stringifyOverride(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (Array.isArray(v)) return v.map((x) => String(x)).join(',');
+  if (typeof v === 'string') return v;
+  return String(v);
 }
 
 // Lock-with-tooltip block shown next to read-only gateway keys. The
