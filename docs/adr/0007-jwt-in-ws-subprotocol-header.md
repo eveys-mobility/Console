@@ -60,8 +60,8 @@ messages are exchanged.
   httpOnly cookie + CSRF token. See `docs/07-security.md`.
 - **Auth-on-first-message**. Rejected because the server still
   allocates a WS connection (a TCP socket, file descriptor, ws
-  state) before knowing whether the principal is real. Cheap on
-  laptop dev, expensive under abuse.
+  state) before knowing whether the principal is real. Cheap in
+  local dev, expensive under abuse.
 
 ## Consequences
 

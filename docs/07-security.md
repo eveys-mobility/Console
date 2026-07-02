@@ -45,7 +45,7 @@ with code 4401.
 
 ### Status
 
-- Dev: HS256 with a static secret. Acceptable for laptop dev only.
+- Dev: HS256 with a static secret. Acceptable for local dev only.
 - Production: **must move to RS256 + JWKS**. Plug into your IdP
   (Keycloak, Auth0, Cognito, custom). The verify call lives in one
   place — `apps/server/src/auth/jwt.ts` — change the `secret` option

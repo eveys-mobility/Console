@@ -59,7 +59,7 @@ export class KafkaTail {
       this.cfg.KAFKA_TOPICS_FIRMWARE_STATUS,
     ];
     // Subscribe one topic at a time so a missing topic on the broker
-    // (UNKNOWN_TOPIC_OR_PARTITION on laptop dev where the gateway hasn't
+    // (UNKNOWN_TOPIC_OR_PARTITION in local dev where the gateway hasn't
     // created every topic yet) doesn't fail the whole startup. We log
     // and continue; /sys/status reports what we ended up subscribed to.
     const subscribed: string[] = [];

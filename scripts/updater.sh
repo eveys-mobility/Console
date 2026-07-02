@@ -3,8 +3,8 @@
 #
 # Pulls the latest code, rebuilds the `server` and `web` images, and
 # recreates the containers in place. No database — the Console has no
-# schema of its own. Works on a laptop (Docker Desktop) and on a VM
-# running plain Docker + Compose.
+# schema of its own. Works on any host running Docker + Compose v2
+# (Linux server, workstation, VM).
 #
 # Usage:
 #   scripts/updater.sh                 # pull + rebuild + restart
@@ -107,8 +107,9 @@ translate_env_for_docker() {
   local dst
   dst="$(mktemp -t console-updater-env.XXXXXX)"
   TRANSLATED_ENV_FILES+=("${dst}")
-  # awk (not sed) — BSD sed on macOS chokes on the multi-substitute
-  # group syntax; awk's gsub inside a matching action is portable.
+  # awk (not sed) — awk's gsub inside a matching action is portable
+  # across BSD and GNU userlands; sed's multi-substitute group syntax
+  # is not.
   awk '
     /^KAFKA_BROKERS=/ {
       gsub(/localhost:9092/, "kafka:29092")
@@ -126,7 +127,7 @@ translate_env_for_docker() {
     }
     { print }
   ' "${src}" > "${dst}"
-  warn "$(basename "${src}"): localhost rewritten for the gateway docker network: KAFKA_BROKERS->kafka:29092, GATEWAY_BASE_URL->http://eveys-ocpp:8080 (your .env stays untouched for pnpm dev)."
+  warn "$(basename "${src}"): localhost rewritten for the gateway docker network: KAFKA_BROKERS->kafka:29092, GATEWAY_BASE_URL->http://eveys-ocpp:8080 (your .env stays untouched for the host-side pnpm dev flow)."
   printf '%s' "${dst}"
 }
 
@@ -216,8 +217,9 @@ info "building: ${services[*]}"
 # byte change in those files produces a different digest, so the
 # build layer reliably re-runs.
 if [[ "${DO_WEB}" -eq 1 ]]; then
-  # macOS ships `shasum`, Linux ships `sha256sum`. Pick whichever is
-  # on PATH so this works on a dev laptop and on the prod box.
+  # Some hosts ship `sha256sum` (GNU coreutils), others ship `shasum`
+  # (Perl-based, from the older BSD userland). Pick whichever is on
+  # PATH so this works everywhere.
   if command -v sha256sum >/dev/null 2>&1; then
     _digest_cmd=(sha256sum)
   elif command -v shasum >/dev/null 2>&1; then

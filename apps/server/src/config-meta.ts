@@ -182,7 +182,7 @@ const META: Record<keyof Config, KeyMeta> = {
 
   ALLOWED_ORIGINS: {
     description:
-      'CSV of Origin headers permitted on the WS handshake and login routes. Empty disables Origin checking (laptop dev).',
+      'CSV of Origin headers permitted on the WS handshake and login routes. Empty disables Origin checking (local dev only).',
     category: 'auth',
     mutable: true,
     restart: 'console',
@@ -468,7 +468,7 @@ const META: Record<keyof Config, KeyMeta> = {
   },
   CONSOLE_PUBLIC_BASE_URL: {
     description:
-      'Externally-reachable base URL of the Console (used to build upload URLs handed to chargers). Falls back to `http://HOST:PORT` for laptop dev.',
+      'Externally-reachable base URL of the Console (used to build upload URLs handed to chargers). Falls back to `http://HOST:PORT` for local dev.',
     category: 'diagnostics',
     mutable: true,
     restart: 'console',

@@ -2,7 +2,13 @@
 
 ## Prerequisites
 
-- Node ≥ 20.10 (`brew install node@20`)
+Run `make doctor` from the repo root — it verifies the full list
+below against minimum versions and prints one line per tool. On any
+Linux server or Mac workstation the same check applies; there is no
+platform-specific step.
+
+- Node ≥ 20.10 (any package from <https://nodejs.org/> or your
+  distribution's Node 20 package)
 - pnpm 9.15 (`corepack prepare pnpm@9.15.0 --activate`)
 - The OCPP gateway running locally (the sibling repo
   `eveys-mobility/OCPP`) with:

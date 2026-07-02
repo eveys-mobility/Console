@@ -69,7 +69,7 @@ limit on `/auth/login`.
 - No third-party dependency. No GDPR / privacy review needed.
 - Stateless on the server — the challenge is signed, so verifying
   a solution doesn't require server-side state.
-- Configurable difficulty per deploy (laptop dev: lower; prod: higher).
+- Configurable difficulty per deploy (local dev: lower; prod: higher).
 - Combined with the per-IP rate limit, gives two independent
   controls.
 - Tested directly: see `apps/server/test/auth.test.ts`.

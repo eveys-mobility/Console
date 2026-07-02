@@ -74,10 +74,10 @@ _require-nonprod:
 
 help:
 	@echo "Environment:"
-	@echo "  make doctor             check local-dev tools (Node, pnpm, Docker, …)"
+	@echo "  make doctor             verify system is ready to install (Node, pnpm, Docker, git, make)"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make install            install workspace deps + regenerate api-types"
+	@echo "  make install            run doctor -> install workspace deps + regenerate api-types"
 	@echo "  make gen-api-types      regenerate packages/api-types/ from the gateway's OpenAPI spec"
 	@echo ""
 	@echo "Day-to-day:"
@@ -117,7 +117,22 @@ doctor:
 
 # ---- setup ------------------------------------------------------------------
 
+# `make install` is the entry point for a fresh checkout. It gates on
+# `make doctor` first so a missing Node / pnpm / Docker / git / make
+# fails here — with a clear diagnosis — instead of surfacing three
+# steps deeper as an opaque `pnpm install` error. `SKIP_DOCTOR=1`
+# lets CI or resumed reruns bypass the check when the environment
+# is already known-good.
 install:
+	@if [ "$(SKIP_DOCTOR)" != "1" ]; then \
+	  $(MAKE) doctor || { \
+	    echo "" >&2; \
+	    echo "ERROR: `make doctor` reported missing prerequisites (see above)." >&2; \
+	    echo "       Fix the items marked with ✗ and re-run `make install`, or" >&2; \
+	    echo "       pass SKIP_DOCTOR=1 to bypass this gate." >&2; \
+	    exit 1; \
+	  }; \
+	fi
 	@command -v $(PNPM) >/dev/null 2>&1 || { \
 	  echo "ERROR: pnpm not found. Activate via Corepack:" >&2; \
 	  echo "    corepack prepare pnpm@9.15.0 --activate" >&2; \

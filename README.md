@@ -30,9 +30,17 @@ cp apps/web/.env.example    apps/web/.env
 # (matching the gateway's REST_INBOUND_TOKENS), KAFKA_BROKERS, and
 # the CONSOLE_USERNAME / CONSOLE_PASSWORD pair.
 
-make install            # pnpm install + regenerate api-types
+make doctor             # verify system prerequisites are ready
+make install            # gated on `make doctor`; pnpm install + regenerate api-types
 make dev                # apps/server + apps/web in watch mode
 ```
+
+`make doctor` inspects every required tool (Node 20+, pnpm 9.15,
+Docker + Compose v2, git, make) against a minimum version and prints
+a one-line diagnosis per tool. Run it whenever `make install` or
+`make dev` starts failing in an unfamiliar way — it will point at
+the missing or out-of-date piece. `make install` invokes it first
+and refuses to run if a required tool is missing.
 
 The web app opens on `http://localhost:5180`; the Fastify server lives
 on `http://localhost:8090`. Sign in with the credentials you put in
@@ -44,8 +52,8 @@ If you'd rather run everything in Docker, `make compose-up` builds
 the images and brings the containers up; `make compose-status` and
 `make compose-logs` follow from there. The compose file declares the
 gateway's network as an external dependency, so the server reaches
-Kafka via the internal listener without the advertised-listener
-mismatch you'd hit through `host.docker.internal`.
+Kafka via the internal listener without any advertised-listener
+mismatch.
 
 ## Updating
 
@@ -179,17 +187,17 @@ remembering filter flags.
 
 **Environment**
 
-| Target        | What it does                                                                                                                |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `make doctor` | Check local-dev tools (Node 20+, pnpm 9.15, Docker, …) against minimum versions. Run this first if anything else complains. |
+| Target        | What it does                                                                                                                                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make doctor` | Verify the system is ready to install (Node 20+, pnpm 9.15, Docker + Compose v2, git, make). Runs automatically as the first step of `make install`; you can also run it standalone whenever `make dev` or `make install` starts complaining. |
 
 **Setup**
 
-| Target                | What it does                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make install`        | `pnpm install` → regenerate `packages/api-types/` from the gateway's OpenAPI spec → build the workspace packages (`api-types` + `protocol`). |
-| `make gen-api-types`  | Just the regenerate step. Re-run after the gateway publishes a new spec.                                                                     |
-| `make build-packages` | Build the workspace packages (`api-types` + `protocol`) so `apps/web` can resolve them through vite.                                         |
+| Target                | What it does                                                                                                                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make install`        | `make doctor` (fail-fast on missing tools) → `pnpm install` → regenerate `packages/api-types/` from the gateway's OpenAPI spec → build the workspace packages (`api-types` + `protocol`). |
+| `make gen-api-types`  | Just the regenerate step. Re-run after the gateway publishes a new spec.                                                                                                                  |
+| `make build-packages` | Build the workspace packages (`api-types` + `protocol`) so `apps/web` can resolve them through vite.                                                                                      |
 
 **Day-to-day**
 

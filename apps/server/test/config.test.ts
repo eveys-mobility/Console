@@ -37,7 +37,7 @@ describe('loadConfig', () => {
     expect(() => loadConfig(env as NodeJS.ProcessEnv)).toThrow(/Refusing to start/);
   });
 
-  it('allows placeholder JWT_SECRET on loopback (laptop dev)', () => {
+  it('allows placeholder JWT_SECRET on loopback (local dev)', () => {
     const env = {
       ...baseEnv,
       JWT_SECRET: 'replace-me-with-a-real-secret-of-at-least-16-bytes',

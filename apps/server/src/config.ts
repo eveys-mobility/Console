@@ -23,7 +23,7 @@ export const configSchema = z.object({
   // Generate a hash with `pnpm --filter @eveys-console/server hash-password`.
   CONSOLE_USERS: z.string().default(''),
 
-  // Convenience plaintext login for laptop dev. When both are set, the
+  // Convenience plaintext login for local dev. When both are set, the
   // server hashes the password at boot and registers the user. Overrides
   // any matching entry in CONSOLE_USERS. Leave empty in production —
   // prefer CONSOLE_USERS with pre-computed bcrypt hashes.
@@ -32,7 +32,7 @@ export const configSchema = z.object({
 
   // Anti-robot proof-of-work CAPTCHA on the login form.
   // Difficulty = number of leading zero bits the client's hash must have.
-  // 16 ≈ 50 ms on a laptop; 20 ≈ 1 s; tune for your threat model.
+  // 16 ≈ 50 ms on modern consumer hardware; 20 ≈ 1 s; tune for your threat model.
   AUTH_POW_DIFFICULTY: z.coerce.number().int().min(0).max(28).default(16),
   AUTH_POW_TTL_SECONDS: z.coerce.number().int().positive().default(120),
 
@@ -40,8 +40,8 @@ export const configSchema = z.object({
   AUTH_LOGIN_MAX_PER_MIN: z.coerce.number().int().positive().default(5),
 
   // Comma-separated list of allowed Origin headers on the WS handshake and
-  // login routes. Empty = no Origin check (laptop dev). Set to your console
-  // hostname(s) in production.
+  // login routes. Empty = no Origin check (local dev only). Set to your
+  // console hostname(s) in production.
   ALLOWED_ORIGINS: z.string().default(''),
 
   // Gateway upstream
@@ -154,7 +154,7 @@ export const configSchema = z.object({
     .positive()
     .default(50 * 1024 * 1024),
   /** Optional. When unset, the server fabricates `http://${HOST}:${PORT}`
-   *  at runtime — fine for laptop dev. Set this to the externally-reachable
+   *  at runtime — fine for local dev. Set this to the externally-reachable
    *  base URL when running behind a reverse proxy. */
   CONSOLE_PUBLIC_BASE_URL: z.string().optional(),
 
@@ -198,7 +198,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cfg = parsed.data;
 
   // Refuse to bind a non-loopback interface with a placeholder JWT_SECRET.
-  // This is the difference between "vulnerable laptop dev" and "fully open
+  // This is the difference between "vulnerable local dev" and "fully open
   // admin endpoint on the public internet". A misconfigured deploy is the
   // dominant failure mode; this trips it before it does damage.
   if (PLACEHOLDER_SECRETS.has(cfg.JWT_SECRET) && !LOOPBACK_HOSTS.has(cfg.HOST)) {

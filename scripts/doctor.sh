@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# scripts/doctor.sh — verify local-dev prerequisites for eveys-console.
+# scripts/doctor.sh — verify prerequisites for eveys-console on any
+# supported host (Linux server or Mac workstation).
 #
 # Mirrors the gateway's scripts/doctor.sh. Checks every tool the
 # Console actually needs against a sane minimum version. Exit code 0
-# = ready to code; exit code 1 = at least one required tool is
+# = ready to install; exit code 1 = at least one required tool is
 # missing or below the minimum. Optional tools (gh, jq, kafkacat)
 # are reported as warnings only.
 
@@ -68,7 +69,7 @@ printf "%sRequired:%s\n" "$BOLD" "$RESET"
 # Node — apps/server and apps/web both target 20+. The Dockerfiles
 # pin 20.10.0; locally anything >= 20.10.0 is fine.
 check_required "node" "node" "20.10.0" \
-    "https://nodejs.org/ or 'brew install node@20'" \
+    "https://nodejs.org/ (any Node 20+ package works on Linux or Mac)" \
     "node --version | sed 's/^v//'"
 
 # Corepack ships with Node 16.10+. We use it to pin pnpm.
@@ -82,8 +83,10 @@ check_required "pnpm" "pnpm" "9.15.0" \
     "pnpm --version"
 
 # Docker — the compose flow + scripts/updater.sh both require it.
+# Any Docker Engine 24+ works: Docker Desktop, the Linux server
+# packages from docs.docker.com, Rancher Desktop, colima, etc.
 check_required "docker" "docker" "24.0.0" \
-    "Docker Desktop https://www.docker.com/products/docker-desktop/" \
+    "https://docs.docker.com/engine/install/  (any distribution shipping Engine 24+)" \
     "docker --version | sed -E 's/.*version ([0-9.]+).*/\\1/'"
 
 # docker compose (v2 plugin) — `docker-compose` v1 is not supported.
@@ -92,20 +95,20 @@ if docker compose version >/dev/null 2>&1; then
     if [ -n "$actual" ] && version_ge "$actual" "2.20.0"; then
         ok "compose" "v$actual (>= v2.20.0)"
     else
-        miss "compose" "v${actual:-?} (need >= v2.20.0) — Docker Desktop bundles it; upgrade Docker"
+        miss "compose" "v${actual:-?} (need >= v2.20.0) — upgrade Docker Engine"
     fi
 else
-    miss "compose" "missing — Docker Desktop ships it; check 'docker compose version'"
+    miss "compose" "missing — install the docker-compose-plugin; check 'docker compose version'"
 fi
 
 # git — needed by scripts/updater.sh for `git pull`.
 check_required "git" "git" "2.30.0" \
-    "https://git-scm.com/ or 'brew install git'" \
+    "https://git-scm.com/downloads" \
     "git --version | sed -E 's/.* ([0-9.]+).*/\\1/'"
 
 # make — used by the Makefile (you're already running it if you got here).
 check_required "make" "make" "3.81" \
-    "preinstalled on macOS; on Linux 'apt-get install build-essential'" \
+    "package name is 'make' on Debian/Ubuntu/Fedora/Alpine; ships with the developer command-line tools" \
     "make --version | head -n1 | sed -E 's/.* ([0-9.]+).*/\\1/'"
 
 # ---- optional tools ---------------------------------------------------------
@@ -114,9 +117,9 @@ echo ""
 printf "%sOptional:%s\n" "$BOLD" "$RESET"
 
 check_optional "gh"        "gh"        "https://cli.github.com/  (PRs from the CLI)"
-check_optional "jq"        "jq"        "'brew install jq'  (poking at /api/* responses)"
-check_optional "kafkacat"  "kcat"      "'brew install kcat'  (inspecting the gateway's Kafka topics)"
-check_optional "promtool"  "promtool"  "'brew install prometheus'  (validating rules locally)"
+check_optional "jq"        "jq"        "package name is 'jq'  (poking at /api/* responses)"
+check_optional "kafkacat"  "kcat"      "package name is 'kafkacat' or 'kcat'  (inspecting the gateway's Kafka topics)"
+check_optional "promtool"  "promtool"  "ships with the Prometheus release tarball  (validating rules locally)"
 
 # ---- summary ----------------------------------------------------------------
 
