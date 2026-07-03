@@ -252,7 +252,7 @@ function NavContents({ path }: { path: string }) {
         />
         <NavItem
           to="/sys/ocpp-config"
-          label="OCPP config"
+          label="OCPP boot config"
           icon={<Sliders className="h-4 w-4" />}
           active={path.startsWith('/sys/ocpp-config')}
         />

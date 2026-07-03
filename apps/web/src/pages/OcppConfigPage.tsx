@@ -1,4 +1,4 @@
-// "OCPP config" — fleet-wide post-boot ChangeConfiguration matrix.
+// "OCPP boot config" — fleet-wide post-boot ChangeConfiguration matrix.
 //
 // The gateway pushes these keys to every charger after each Accepted
 // BootNotification. Values flow through the runtime-override path so
@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { useConsoleClient } from '@/lib/ws-context';
 
 interface DraftState {
@@ -94,15 +95,22 @@ export function OcppConfigPage() {
 
   const saveMutation = useMutation({
     mutationFn: async (updates: Record<string, string>) => {
-      // Coerce ints client-side: the gateway accepts strings but
-      // sending a number makes the override schema cleaner.
+      // Coerce client-side so the gateway sees typed JSON rather than
+      // guessing shape from a string.
       const payload: Record<string, unknown> = {};
       for (const [k, raw] of Object.entries(updates)) {
         const spec = OCPP_FIELDS.find((f) => f.key === k);
         if (!spec) continue;
-        const n = Number(raw);
-        if (!Number.isFinite(n)) throw new Error(`${spec.label}: not a number`);
-        payload[k] = n;
+        if (spec.kind === 'bool') {
+          const s = raw.trim().toLowerCase();
+          if (s === 'true') payload[k] = true;
+          else if (s === 'false') payload[k] = false;
+          else throw new Error(`${spec.label}: expected true or false`);
+        } else {
+          const n = Number(raw);
+          if (!Number.isFinite(n)) throw new Error(`${spec.label}: not a number`);
+          payload[k] = n;
+        }
       }
       return setGatewayAdminConfig(token!, payload);
     },
@@ -122,7 +130,7 @@ export function OcppConfigPage() {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading OCPP config…
+        Loading OCPP boot config…
       </div>
     );
   }
@@ -130,7 +138,7 @@ export function OcppConfigPage() {
   if (configQ.error || !configQ.data) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Couldn't load OCPP config</AlertTitle>
+        <AlertTitle>Couldn't load OCPP boot config</AlertTitle>
         <AlertDescription>
           {configQ.error instanceof Error ? configQ.error.message : 'unknown error'}
         </AlertDescription>
@@ -167,7 +175,7 @@ function Header({ dirty, saving, onSave }: { dirty: number; saving: boolean; onS
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 className="text-lg font-semibold sm:text-xl">OCPP config</h2>
+        <h2 className="text-lg font-semibold sm:text-xl">OCPP boot config</h2>
         <p className="text-sm text-muted-foreground">
           Pushed via ChangeConfiguration to every charger after each Accepted BootNotification.
           Edits apply to the next boot — no gateway restart required.
@@ -230,14 +238,39 @@ function Section({
                     ) : null}
                   </div>
                 </div>
-                <Input
-                  id={`f-${f.key}`}
-                  inputMode="numeric"
-                  value={value}
-                  onChange={(e) => onChange(f.key, e.target.value)}
-                  className="font-mono text-xs"
-                  placeholder="0"
-                />
+                {f.kind === 'bool' ? (
+                  <Select
+                    id={`f-${f.key}`}
+                    value={value}
+                    onChange={(e) => onChange(f.key, e.currentTarget.value)}
+                    className="h-8 font-mono text-xs"
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </Select>
+                ) : f.intOptions ? (
+                  <Select
+                    id={`f-${f.key}`}
+                    value={value}
+                    onChange={(e) => onChange(f.key, e.currentTarget.value)}
+                    className="h-8 font-mono text-xs"
+                  >
+                    {f.intOptions.map((opt) => (
+                      <option key={opt.value} value={String(opt.value)}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    id={`f-${f.key}`}
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(e) => onChange(f.key, e.target.value)}
+                    className="font-mono text-xs"
+                    placeholder="0"
+                  />
+                )}
                 <p className="text-[10px] text-muted-foreground">{f.label}</p>
                 {f.hint ? <p className="text-[10px] text-muted-foreground">{f.hint}</p> : null}
               </div>

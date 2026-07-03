@@ -14,7 +14,7 @@
 // raw_payload pane so the operator can inspect the JSON without
 // every row taking 200px vertical.
 
-import { ChevronDown, ChevronRight, Filter, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Filter, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchCpFrames, type CpFramesResponse, type OcppFrame } from '@/api/frames-client';
@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { formatAbsoluteTime } from '@/lib/time';
 import { useConsoleClient } from '@/lib/ws-context';
 import { cn } from '@/lib/utils';
 
@@ -95,15 +96,29 @@ export function OcppLogPanel({ cpId }: OcppLogPanelProps) {
       <CardHeader className="space-y-3 pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">OCPP Log</CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setNonce((n) => n + 1)}
-            aria-label="Refresh OCPP log"
-            data-testid="ocpp-log-refresh"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                state.phase === 'ok' && downloadFramesCsv(cpId, state.data.frames, rangeMinutes)
+              }
+              disabled={state.phase !== 'ok' || state.data.frames.length === 0}
+              aria-label="Export OCPP log as CSV"
+              data-testid="ocpp-log-export"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNonce((n) => n + 1)}
+              aria-label="Refresh OCPP log"
+              data-testid="ocpp-log-refresh"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         <FilterRow
           rangeMinutes={rangeMinutes}
@@ -240,7 +255,12 @@ function FrameRow({ frame }: { frame: OcppFrame }) {
         ) : (
           <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
         )}
-        <span className="shrink-0 text-muted-foreground">{shortTime(frame.occurred_at)}</span>
+        <span
+          className="shrink-0 text-muted-foreground"
+          title={formatAbsoluteTime(frame.occurred_at)}
+        >
+          {shortTime(frame.occurred_at)}
+        </span>
         {dirChip}
         <span className="shrink-0 text-muted-foreground">{typeLabel}</span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -278,10 +298,14 @@ function ocppTypeLabel(t: number): string {
 }
 
 function shortTime(iso: string): string {
-  // The window is bounded to 24h max, so a HH:mm:ss column is
-  // unambiguous and saves horizontal space. The date is in the
-  // expanded payload if the operator needs to disambiguate.
-  return iso.slice(11, 19);
+  // Frame timestamps arrive as UTC ISO strings. Render in the operator's
+  // browser zone so a UK operator watching a Turkish site sees times that
+  // match their wall clock. `title` on the caller carries the full
+  // absolute time + offset for exact correlation with backend logs.
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(11, 19);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function prettyJson(raw: string): string {
@@ -293,4 +317,59 @@ function prettyJson(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+function downloadFramesCsv(cpId: string, frames: readonly OcppFrame[], rangeMinutes: number) {
+  // Two timestamps per row: UTC (matches backend logs, unambiguous for
+  // on-call handoff) and browser-local (matches what the operator saw
+  // on screen). Raw payload is CSV-escaped so multi-line JSON survives
+  // Excel round-trips.
+  const header = [
+    'occurred_at_utc',
+    'occurred_at_local',
+    'direction',
+    'ocpp_type',
+    'action',
+    'message_id',
+    'transaction_id',
+    'raw_payload',
+  ];
+  const rows = frames.map((f) => [
+    f.occurred_at,
+    formatAbsoluteTime(f.occurred_at),
+    f.direction,
+    ocppTypeLabel(f.message_type),
+    f.action ?? '',
+    f.message_id,
+    f.transaction_id != null ? String(f.transaction_id) : '',
+    f.raw_payload,
+  ]);
+  const csv = [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ocpp-log-${cpId}-${rangeMinutes}m-${csvFilenameStamp()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(v: string): string {
+  // RFC 4180: wrap in quotes when the cell has a comma, quote, or
+  // newline; escape internal quotes by doubling. Every cell that
+  // could contain a quote or comma gets wrapped; short ints and
+  // action names skip the wrap for readability.
+  if (/[",\r\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
+function csvFilenameStamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  );
 }
