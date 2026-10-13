@@ -46,6 +46,7 @@ export function OcppLogPanel({ cpId }: OcppLogPanelProps) {
   const [rangeMinutes, setRangeMinutes] = useState<RangeMinutes>(60);
   const [direction, setDirection] = useState<DirectionFilter>('all');
   const [actionFilter, setActionFilter] = useState('');
+  const [committedAction, setCommittedAction] = useState('');
   const [nonce, setNonce] = useState(0); // bump to force a refetch
   const [state, setState] = useState<
     | { phase: 'loading' }
@@ -53,24 +54,19 @@ export function OcppLogPanel({ cpId }: OcppLogPanelProps) {
     | { phase: 'error'; detail: string }
   >({ phase: 'loading' });
 
-  const window = useMemo(() => {
-    const to = new Date();
-    const from = new Date(to.getTime() - rangeMinutes * 60 * 1000);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, [rangeMinutes]);
-
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     setState({ phase: 'loading' });
+    const to = new Date();
+    const from = new Date(to.getTime() - rangeMinutes * 60 * 1000);
     const params: Parameters<typeof fetchCpFrames>[2] = {
-      from: window.from,
-      to: window.to,
+      from: from.toISOString(),
+      to: to.toISOString(),
       limit: 500,
     };
     if (direction !== 'all') params.direction = direction;
-    const trimmedAction = actionFilter.trim();
-    if (trimmedAction) params.action = trimmedAction;
+    if (committedAction) params.action = committedAction;
     fetchCpFrames(token, cpId, params)
       .then((data) => {
         if (!cancelled) setState({ phase: 'ok', data });
@@ -85,11 +81,7 @@ export function OcppLogPanel({ cpId }: OcppLogPanelProps) {
     return () => {
       cancelled = true;
     };
-    // actionFilter is intentionally committed here on each render to
-    // keep the wiring simple — the input is debounced below by only
-    // refetching on blur/Enter, not every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cpId, token, window, direction, nonce]);
+  }, [cpId, token, rangeMinutes, direction, committedAction, nonce]);
 
   return (
     <Card data-testid="ocpp-log-panel">
@@ -127,7 +119,7 @@ export function OcppLogPanel({ cpId }: OcppLogPanelProps) {
           onDirectionChange={setDirection}
           actionFilter={actionFilter}
           onActionFilterChange={setActionFilter}
-          onCommitActionFilter={() => setNonce((n) => n + 1)}
+          onCommitActionFilter={() => setCommittedAction(actionFilter.trim())}
         />
       </CardHeader>
       <CardContent className="pt-0">

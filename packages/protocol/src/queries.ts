@@ -190,7 +190,13 @@ export const snapshotForQuery = z.union([
   z.object({ kind: z.literal('transactions-active'), rows: z.array(transactionSummary) }),
   z.object({ kind: z.literal('meter-history'), rows: z.array(meterSample) }),
   z.object({ kind: z.literal('status-history'), rows: z.array(statusEvent) }),
-  z.object({ kind: z.literal('device-events'), rows: z.array(deviceEvent) }),
+  z.object({
+    kind: z.literal('device-events'),
+    rows: z.array(deviceEvent),
+    // This reports the local log read only, not archive completeness.
+    history_state: z.enum(['available', 'unavailable', 'unconfigured']).optional(),
+    history_error: z.literal('read_failed').nullable().optional(),
+  }),
 ]);
 export type SnapshotForQuery = z.infer<typeof snapshotForQuery>;
 

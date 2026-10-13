@@ -53,6 +53,9 @@ export interface TransactionDetail {
   stop_reason: string | null;
   open: boolean;
   telemetry: TransactionTelemetry | null;
+  /** Archive readability only; older gateways omit these additive fields. */
+  telemetry_state?: 'available' | 'unavailable' | 'unconfigured';
+  telemetry_error?: 'ARCHIVE_UNAVAILABLE' | 'ARCHIVE_UNCONFIGURED' | null;
 }
 
 export interface MeterValueSample {

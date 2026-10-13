@@ -97,6 +97,53 @@ describe('DeviceEventsPanel — wiring', () => {
 });
 
 describe('DeviceEventsPanel — empty state', () => {
+  it('shows archive read failure while live events can still arrive', () => {
+    setSub({
+      snapshot: {
+        kind: 'device-events',
+        rows: [],
+        history_state: 'unavailable',
+        history_error: 'read_failed',
+      },
+    });
+    const { rerender } = render(<DeviceEventsPanel cpId="cp_test" />);
+    expect(screen.getByText(/Event history unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No recorded events/i)).not.toBeInTheDocument();
+    setSub({ lastDelta: delta(makeEvent({ summary: 'live status after archive failure' })) });
+    rerender(<DeviceEventsPanel cpId="cp_test" />);
+    expect(screen.getByText('live status after archive failure')).toBeInTheDocument();
+    expect(screen.getByText(/Event history unavailable/i)).toBeInTheDocument();
+  });
+
+  it('shows a successfully read empty history without an endless loading spinner', () => {
+    setSub({
+      snapshot: {
+        kind: 'device-events',
+        rows: [],
+        history_state: 'available',
+        history_error: null,
+      },
+    });
+    render(<DeviceEventsPanel cpId="cp_test" />);
+    expect(screen.getByTestId('device-events-empty')).toHaveTextContent('No recorded events');
+  });
+
+  it('keeps the last successful rows visible when live subscription later fails', () => {
+    setSub({
+      snapshot: {
+        kind: 'device-events',
+        rows: [makeEvent({ summary: 'retained status' })],
+        history_state: 'available',
+      },
+    });
+    const { rerender } = render(<DeviceEventsPanel cpId="cp_test" />);
+    expect(screen.getByText('retained status')).toBeInTheDocument();
+    setSub({ error: 'Disconnected' });
+    rerender(<DeviceEventsPanel cpId="cp_test" />);
+    expect(screen.getByText(/Couldn't subscribe.*Disconnected/i)).toBeInTheDocument();
+    expect(screen.getByText('retained status')).toBeInTheDocument();
+  });
+
   it('renders the waiting copy when no events have arrived', () => {
     render(<DeviceEventsPanel cpId="cp_test" />);
     expect(screen.getByTestId('device-events-empty')).toHaveTextContent('Waiting for events');

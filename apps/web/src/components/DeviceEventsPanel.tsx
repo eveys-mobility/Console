@@ -228,19 +228,8 @@ export function DeviceEventsPanel({ cpId }: DeviceEventsPanelProps) {
       return next;
     });
 
-  if (sub.error) {
-    return (
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle>Live events</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-destructive">Couldn't subscribe: {sub.error}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
+  const historyState =
+    sub.snapshot?.kind === 'device-events' ? sub.snapshot.history_state : undefined;
   const bufferedCount = pauseBufferRef.current.length;
 
   return (
@@ -351,13 +340,37 @@ export function DeviceEventsPanel({ cpId }: DeviceEventsPanelProps) {
       </CardHeader>
 
       <CardContent>
+        {sub.error && (
+          <p className="mb-3 text-sm text-destructive" role="alert">
+            Couldn't subscribe: {sub.error}
+            {events.length > 0 ? ' Showing last known events.' : ''}
+          </p>
+        )}
+        {historyState === 'unavailable' && (
+          <p className="mb-3 text-sm text-destructive" role="alert">
+            Event history unavailable. Live events may still arrive; the local archive could not be
+            read.
+          </p>
+        )}
+        {historyState === 'unconfigured' && (
+          <p className="mb-3 text-sm text-muted-foreground">
+            Event history is not configured. Showing live events only.
+          </p>
+        )}
         {events.length === 0 ? (
           <div
             className="flex items-center gap-2 text-sm text-muted-foreground"
             data-testid="device-events-empty"
           >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Waiting for events…
+            {sub.loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading events…
+              </>
+            ) : historyState === 'available' ? (
+              'No recorded events in the loaded history. Waiting for live events…'
+            ) : (
+              'Waiting for events…'
+            )}
           </div>
         ) : visible.length === 0 ? (
           <p className="text-xs text-muted-foreground" data-testid="device-events-no-match">

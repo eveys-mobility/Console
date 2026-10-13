@@ -58,6 +58,25 @@ async function openDrawer() {
 }
 
 describe('CommandsDrawer', () => {
+  it.each([
+    { reply: null, copy: 'Command result unknown' },
+    { reply: { status: 'Rejected' }, copy: 'Rejected' },
+  ])('never toasts acceptance for $copy', async ({ reply, copy }) => {
+    rpc.mockResolvedValueOnce(reply);
+    const user = await openDrawer();
+    const card = screen.getByText('RemoteStop').closest<HTMLElement>('[data-testid="cmd-card"]')!;
+    await user.type(within(card).getByPlaceholderText('0'), '42');
+    await user.click(within(card).getByRole('button', { name: /^Send$/i }));
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: 'destructive',
+        description: expect.stringContaining(copy),
+      }),
+    );
+    expect(toast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Command accepted by charger' }),
+    );
+  });
   it('opens on trigger click and renders all section headings', async () => {
     await openDrawer();
     expect(screen.getByRole('heading', { name: /diagnostics/i })).toBeInTheDocument();

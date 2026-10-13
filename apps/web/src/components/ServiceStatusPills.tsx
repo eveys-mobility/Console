@@ -45,8 +45,17 @@ function componentPills(s: SysStatus): Pill[] {
     out.push({
       key: `gw-${name}`,
       label: prettyComponentName(name),
-      tone: ok ? 'success' : status === 'unconfigured' ? 'warning' : 'destructive',
-      hint: ok ? 'ok' : status,
+      tone: ok
+        ? 'success'
+        : status === 'unconfigured' || status === 'unknown'
+          ? 'warning'
+          : 'destructive',
+      hint:
+        name === 'ingestor' && status === 'unknown'
+          ? 'unknown — ingestion progress is not observed'
+          : ok
+            ? 'ok'
+            : status,
     });
   }
   return out;

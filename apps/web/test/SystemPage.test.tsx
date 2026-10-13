@@ -356,6 +356,20 @@ describe('SystemPage — alerts summary', () => {
 });
 
 describe('SystemPage — services placement', () => {
+  it('shows unobserved ingestor progress as unknown rather than a confirmed failure', async () => {
+    nextSysStatus = healthySys({
+      gateway: {
+        ok: false,
+        detail: 'status=degraded',
+        components: { postgres: 'ok', redis: 'ok', clickhouse: 'ok', ingestor: 'unknown' },
+      },
+    });
+    renderPage();
+    const pill = await screen.findByTestId('service-pill-gw-ingestor');
+    expect(pill).toHaveTextContent('unknown');
+    expect(pill).toHaveAttribute('data-tone', 'warning');
+    expect(pill).toHaveAttribute('title', 'unknown — ingestion progress is not observed');
+  });
   it('shows degraded gateway and failed ClickHouse separately without turning diagnostics into a service', async () => {
     nextSysStatus = healthySys({
       gateway: {

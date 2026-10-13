@@ -13,7 +13,7 @@ import {
 
 function makeClient() {
   return {
-    rpc: vi.fn(async (_method: string, _params: Record<string, unknown>) => {
+    rpc: vi.fn(async (_method: string, _params: Record<string, unknown>): Promise<unknown> => {
       return { status: 'Accepted' };
     }),
   };
@@ -27,6 +27,83 @@ describe('useCommandTranscript', () => {
     // entries don't leak into the next.
     __resetTranscriptStoresForTests();
   });
+
+  it.each([null, {}, { unexpected: true }, { status: 'invented-status' }])(
+    'does not accept an unknown/malformed reset reply: %j',
+    async (response) => {
+      const client = makeClient();
+      client.rpc.mockResolvedValueOnce(response);
+      const onResult = vi.fn();
+      const { result } = renderHook(() => useCommandTranscript(client, 'cp_TEST'));
+      await act(async () => {
+        await result.current.send('reset', { type: 'Soft' }, onResult);
+      });
+      expect(result.current.entries[0]!.outcome).toBe('unknown');
+      expect(result.current.entries[0]!.status).toBe('Result unknown');
+      expect(onResult).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not run a success callback for a rejected command', async () => {
+    const client = makeClient();
+    client.rpc.mockResolvedValueOnce({ status: 'Rejected' });
+    const onResult = vi.fn();
+    const { result } = renderHook(() => useCommandTranscript(client, 'cp_TEST'));
+    await act(async () => {
+      await result.current.send('remote-stop', { transaction_id: 42 }, onResult);
+    });
+    expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it('accepts valid status-less configuration keys and RebootRequired only for configuration changes', async () => {
+    const client = makeClient();
+    const config = {
+      configuration_key: [
+        { key: 'StopTransactionOnEVSideDisconnect', readonly: false, value: 'true' },
+      ],
+      unknown_key: [],
+    };
+    client.rpc.mockResolvedValueOnce(config).mockResolvedValueOnce({ status: 'RebootRequired' });
+    const onResult = vi.fn();
+    const { result } = renderHook(() => useCommandTranscript(client, 'cp_TEST'));
+    await act(async () => {
+      await result.current.send('get-configuration', {}, onResult);
+      await result.current.send('change-configuration', { key: 'k', value: 'v' });
+    });
+    expect(result.current.entries.map((entry) => entry.outcome)).toEqual(['accepted', 'accepted']);
+    expect(onResult).toHaveBeenCalledWith(config);
+  });
+
+  it.each([
+    { method: 'unlock-connector', response: { status: 'Accepted' }, outcome: 'unknown' },
+    { method: 'unknown-command', response: { status: 'Accepted' }, outcome: 'unknown' },
+    { method: 'constructor', response: { status: 'Accepted' }, outcome: 'unknown' },
+    { method: 'unlock-connector', response: { status: 'Unlocked' }, outcome: 'accepted' },
+    { method: 'change-configuration', response: { status: 'Accepted' }, outcome: 'accepted' },
+    { method: 'reset', response: { status: 'Unlocked' }, outcome: 'unknown' },
+    { method: 'reset', response: { status: 'RebootRequired' }, outcome: 'unknown' },
+    {
+      method: 'get-configuration',
+      response: { configuration_key: ['invalid'], unknown_key: [] },
+      outcome: 'unknown',
+    },
+    { method: 'get-diagnostics', response: { file_name: '' }, outcome: 'soft-reject' },
+    { method: 'get-diagnostics', response: { file_name: 'diagnostics.log' }, outcome: 'accepted' },
+  ])(
+    'interprets $method replies using their own contract: $outcome',
+    async ({ method, response, outcome }) => {
+      const client = makeClient();
+      client.rpc.mockResolvedValueOnce(response);
+      const onResult = vi.fn();
+      const { result } = renderHook(() => useCommandTranscript(client, 'cp_TEST'));
+      await act(async () => {
+        await result.current.send(method, {}, onResult);
+      });
+      expect(result.current.entries[0]!.outcome).toBe(outcome);
+      if (outcome === 'accepted') expect(onResult).toHaveBeenCalledWith(response);
+      else expect(onResult).not.toHaveBeenCalled();
+    },
+  );
 
   it('appends a pending entry on send and resolves to ok + accepted', async () => {
     const client = makeClient();

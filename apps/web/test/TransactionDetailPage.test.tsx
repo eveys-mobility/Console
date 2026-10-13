@@ -10,7 +10,7 @@
 // heavy; we only check that <Link> renders the right href.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---- mocks ---------------------------------------------------------------
@@ -39,6 +39,10 @@ const fetchMeterValues = vi.fn();
 vi.mock('@/api/transactions-client', () => ({
   fetchTransaction: (...args: unknown[]) => fetchTransaction(...args),
   fetchMeterValues: (...args: unknown[]) => fetchMeterValues(...args),
+}));
+
+vi.mock('@/api/frames-client', () => ({
+  fetchTxFrames: async (_token: string, txId: number) => ({ transaction_id: txId, frames: [] }),
 }));
 
 let routeParams: { txId: string } = { txId: '42' };
@@ -99,10 +103,11 @@ import type { TransactionDetail, MeterValuesResponse } from '@/api/transactions-
 
 // ---- helpers -------------------------------------------------------------
 
-function renderPage() {
-  const qc = new QueryClient({
+function renderPage(
+  qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={qc}>
       <TransactionDetailPage />
@@ -297,6 +302,50 @@ describe('TransactionDetailPage — SoC card', () => {
 });
 
 describe('TransactionDetailPage — charts', () => {
+  it('shows failed archive reads instead of claiming the two curves are empty', async () => {
+    fetchTransaction.mockResolvedValue(closedTx);
+    fetchMeterValues.mockRejectedValue(new Error('meter-values 503'));
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText(/Couldn't load samples/i)).toHaveLength(2));
+    expect(screen.queryByText(/No samples in this window/i)).not.toBeInTheDocument();
+    expect(screen.getByText('tx 42')).toBeInTheDocument();
+    expect(screen.getByText('closed')).toBeInTheDocument();
+    expect(screen.getByText(/kWh: 5\.500/)).toBeInTheDocument();
+  });
+
+  it('retains a successful curve with a visible notice when its later read fails', async () => {
+    fetchTransaction.mockResolvedValue(closedTx);
+    fetchMeterValues.mockImplementation(
+      async (_token: string, _cp: string, params: { measurand: string }) => ({
+        meter_values: [
+          {
+            cp_id: 'CP_A',
+            connector_id: 1,
+            transaction_id: 42,
+            occurred_at: '2026-05-10T12:00:30Z',
+            measurand: params.measurand,
+            phase: params.measurand === 'Power.Active.Import' ? 'L1' : null,
+            unit: params.measurand === 'Power.Active.Import' ? 'W' : 'Wh',
+            value: params.measurand === 'Power.Active.Import' ? 2300 : 1000,
+          },
+        ],
+        next_cursor: null,
+      }),
+    );
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(qc);
+    await waitFor(() => expect(screen.getAllByTestId('line-chart')).toHaveLength(2));
+    fetchMeterValues.mockRejectedValue(new Error('meter-values 503'));
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['meter-values'] });
+    });
+    await waitFor(() => expect(screen.getAllByText(/Couldn't load samples/i)).toHaveLength(2));
+    expect(screen.getAllByTestId('line-chart')).toHaveLength(2);
+    expect(
+      JSON.parse(screen.getAllByTestId('line-chart')[0]!.getAttribute('data-points')!)[0].L1,
+    ).toBe(2.3);
+  });
+
   it('passes one Power.Active.Import data point per timestamp, with per-phase columns', async () => {
     fetchTransaction.mockResolvedValue(closedTx);
     fetchMeterValues.mockImplementation(
@@ -438,6 +487,132 @@ describe('TransactionDetailPage — charts', () => {
     renderPage();
     await waitFor(() => screen.getAllByText(/No samples in this window/i));
     expect(screen.getAllByText(/No samples in this window/i).length).toBe(2);
+  });
+});
+
+describe('TransactionDetailPage — archive read state', () => {
+  for (const [state, message, error] of [
+    ['unavailable', /Archived telemetry unavailable/i, 'ARCHIVE_UNAVAILABLE'],
+    ['unconfigured', /Telemetry archive is not configured/i, 'ARCHIVE_UNCONFIGURED'],
+  ] as const) {
+    it(`shows ${state} telemetry as a read limitation while retaining the PG transaction`, async () => {
+      fetchTransaction.mockResolvedValue({
+        ...closedTx,
+        telemetry: null,
+        telemetry_state: state,
+        telemetry_error: error,
+      });
+      renderPage();
+      await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
+      expect(screen.getByText('tx 42')).toBeInTheDocument();
+      expect(screen.getByText('closed')).toBeInTheDocument();
+      expect(screen.getByText(/kWh: 5\.500/)).toBeInTheDocument();
+      expect(screen.queryByText(/No phase telemetry available/i)).not.toBeInTheDocument();
+    });
+  }
+
+  it('shows a successful empty archive result as empty without an outage notice', async () => {
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry: { soc: { start: null, last: null, delta: null }, phases: {} },
+      telemetry_state: 'available',
+      telemetry_error: null,
+    });
+    renderPage();
+    await waitFor(() => screen.getByText(/No phase telemetry available/i));
+    expect(
+      screen.queryByText(/Archived telemetry unavailable|Telemetry archive is not configured/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('retains successful phase readings if a later detail reports an unavailable archive', async () => {
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry_state: 'available',
+      telemetry_error: null,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(qc);
+    await waitFor(() => screen.getByTestId('phase-row-L1'));
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry: null,
+      telemetry_state: 'unavailable',
+      telemetry_error: 'ARCHIVE_UNAVAILABLE',
+    });
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['transaction', 42] });
+    });
+    await waitFor(() => screen.getByText(/Archived telemetry unavailable/i));
+    expect(screen.getByTestId('phase-row-L1')).toBeInTheDocument();
+    expect(screen.getByText(/previously loaded readings/i)).toBeInTheDocument();
+  });
+
+  it('keeps the successful PG header visible when a later detail refetch fails', async () => {
+    fetchTransaction.mockResolvedValue(closedTx);
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(qc);
+    await waitFor(() => screen.getByText('tx 42'));
+    fetchTransaction.mockRejectedValue(new Error('transaction 502'));
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['transaction', 42] });
+    });
+    await waitFor(() => screen.getByText(/Couldn't refresh transaction/i));
+    expect(screen.getByText('tx 42')).toBeInTheDocument();
+    expect(screen.getByText('closed')).toBeInTheDocument();
+  });
+
+  it('clears retained readings when the route switches to another transaction', async () => {
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry_state: 'available',
+      telemetry_error: null,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = renderPage(qc);
+    await waitFor(() => screen.getByTestId('phase-row-L1'));
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      transaction_id: 43,
+      cp_id: 'CP_B',
+      telemetry: null,
+      telemetry_state: 'unavailable',
+      telemetry_error: 'ARCHIVE_UNAVAILABLE',
+    });
+    routeParams = { txId: '43' };
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailPage />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => screen.getByText('tx 43'));
+    expect(screen.getByText('CP_B')).toBeInTheDocument();
+    expect(screen.queryByTestId('phase-row-L1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('soc-card')).not.toBeInTheDocument();
+    expect(screen.queryByText(/previously loaded readings/i)).not.toBeInTheDocument();
+  });
+
+  it('replaces retained readings with a later successful empty archive snapshot', async () => {
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry_state: 'available',
+      telemetry_error: null,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(qc);
+    await waitFor(() => screen.getByTestId('phase-row-L1'));
+    fetchTransaction.mockResolvedValue({
+      ...closedTx,
+      telemetry: { soc: { start: null, last: null, delta: null }, phases: {} },
+      telemetry_state: 'available',
+      telemetry_error: null,
+    });
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['transaction', 42] });
+    });
+    await waitFor(() => screen.getByText(/No phase telemetry available/i));
+    expect(screen.queryByTestId('phase-row-L1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('soc-card')).not.toBeInTheDocument();
   });
 });
 

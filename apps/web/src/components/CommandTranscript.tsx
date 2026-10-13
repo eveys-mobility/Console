@@ -37,6 +37,7 @@ const OUTCOME_LABEL: Record<TranscriptOutcome, string> = {
   'soft-reject': 'soft-reject',
   pending: 'sending…',
   error: 'transport error',
+  unknown: 'result unknown',
 };
 
 const OUTCOME_VARIANT: Record<
@@ -48,6 +49,7 @@ const OUTCOME_VARIANT: Record<
   'soft-reject': 'warning',
   pending: 'muted',
   error: 'destructive',
+  unknown: 'warning',
 };
 
 type Filter = 'all' | 'failed' | 'accepted';

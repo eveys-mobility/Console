@@ -437,17 +437,21 @@ const deviceEvents: QueryResolver = {
     // that don't need history) or the CP has no recorded events
     // yet.
     let rows: DeviceEvent[] = [];
+    let history_state: 'available' | 'unavailable' | 'unconfigured' = 'unconfigured';
+    let history_error: 'read_failed' | null = null;
     const cpIdRaw = params.cp_id;
     if (eventLogRoot && typeof cpIdRaw === 'string' && cpIdRaw.length > 0) {
       try {
         rows = await tailLastN(eventLogRoot, cpIdRaw, { limit: bootstrapLimit });
+        history_state = 'available';
       } catch {
-        rows = [];
+        history_state = 'unavailable';
+        history_error = 'read_failed';
       }
     }
     return {
       cursor: `gw:device-events:bootstrap:${Date.now()}`,
-      snapshot: { kind: 'device-events', rows },
+      snapshot: { kind: 'device-events', rows, history_state, history_error },
     };
   },
   async deltasFromEvent(params, event) {

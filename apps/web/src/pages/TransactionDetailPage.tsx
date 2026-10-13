@@ -50,6 +50,32 @@ export function TransactionDetailPage() {
   });
 
   const tx = txQuery.data;
+  const telemetryUnavailable =
+    tx?.telemetry_state === 'unavailable' || tx?.telemetry_state === 'unconfigured';
+  const lastTelemetry = useRef<{
+    txId: number;
+    cpId: string;
+    connectorId: number;
+    data: TransactionDetail['telemetry'];
+  } | null>(null);
+  if (
+    lastTelemetry.current &&
+    (lastTelemetry.current.txId !== txId ||
+      (tx &&
+        (lastTelemetry.current.cpId !== tx.cp_id ||
+          lastTelemetry.current.connectorId !== tx.connector_id)))
+  ) {
+    lastTelemetry.current = null;
+  }
+  if (tx && !telemetryUnavailable) {
+    lastTelemetry.current = {
+      txId,
+      cpId: tx.cp_id,
+      connectorId: tx.connector_id,
+      data: tx.telemetry,
+    };
+  }
+  const telemetry = tx?.telemetry ?? (telemetryUnavailable ? lastTelemetry.current?.data : null);
   // Window for the curve queries. For a CLOSED tx the window is fixed
   // (`from`…`stopped_at`); for an OPEN tx we want the upper bound to
   // slide forward on each refetch.
@@ -123,8 +149,8 @@ export function TransactionDetailPage() {
   // on the Kafka tail.
   const livePhases = useMemo(() => derivePhaseSnapshots(liveSamples), [liveSamples]);
   const mergedPhases = useMemo(
-    () => mergePhases(tx?.telemetry?.phases ?? null, livePhases),
-    [tx?.telemetry?.phases, livePhases],
+    () => mergePhases(telemetry?.phases ?? null, livePhases),
+    [telemetry?.phases, livePhases],
   );
 
   // Live-refresh the two curves the moment a MeterValues arrives.
@@ -169,7 +195,7 @@ export function TransactionDetailPage() {
     );
   }
 
-  if (txQuery.error || !tx) {
+  if (!tx) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
@@ -184,16 +210,43 @@ export function TransactionDetailPage() {
   return (
     <div className="space-y-4">
       <Header tx={tx} />
+      {txQuery.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Couldn't refresh transaction {txId}</AlertTitle>
+          <AlertDescription>
+            Showing the previously loaded transaction.{' '}
+            {txQuery.error instanceof Error ? txQuery.error.message : 'request failed'}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {telemetryUnavailable ? (
+        <Alert>
+          <AlertTitle>
+            {tx.telemetry_state === 'unconfigured'
+              ? 'Telemetry archive is not configured'
+              : 'Archived telemetry unavailable'}
+          </AlertTitle>
+          <AlertDescription>
+            The transaction record remains available.{' '}
+            {telemetry
+              ? 'Showing previously loaded readings.'
+              : 'Archived readings could not be loaded.'}{' '}
+            Live readings may still arrive; this does not confirm archive completeness.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <PowerChart
         samples={mergeSamples(powerQuery.data?.meter_values ?? [], livePower)}
         loading={powerQuery.isLoading && livePower.length === 0}
+        error={powerQuery.error}
       />
       <EnergyChart
         samples={mergeSamples(energyQuery.data?.meter_values ?? [], liveEnergy)}
         loading={energyQuery.isLoading && liveEnergy.length === 0}
+        error={energyQuery.error}
       />
-      <PhasesCard phases={mergedPhases} />
-      {tx.telemetry?.soc.last != null ? <SocCard soc={tx.telemetry.soc} /> : null}
+      <PhasesCard phases={mergedPhases} unavailable={telemetryUnavailable} />
+      {telemetry?.soc.last != null ? <SocCard soc={telemetry.soc} /> : null}
       <TxOcppFramesPanel txId={tx.transaction_id} cpId={tx.cp_id} isOpen={tx.open} />
     </div>
   );
@@ -247,22 +300,31 @@ interface ChartCardProps {
   children: React.ReactNode;
   empty: boolean;
   loading: boolean;
+  error: unknown;
 }
 
-function ChartCard({ title, children, empty, loading }: ChartCardProps) {
+function ChartCard({ title, children, empty, loading, error }: ChartCardProps) {
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
+        {error ? (
+          <p role="alert" className="mb-3 text-sm text-destructive">
+            Couldn't load samples: {error instanceof Error ? error.message : 'request failed'}.
+            {!empty ? ' Showing previously loaded or live samples.' : ''}
+          </p>
+        ) : null}
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading…
           </div>
         ) : empty ? (
-          <p className="text-sm text-muted-foreground">No samples in this window.</p>
+          error ? null : (
+            <p className="text-sm text-muted-foreground">No samples in this window.</p>
+          )
         ) : (
           children
         )}
@@ -277,11 +339,19 @@ function ChartCard({ title, children, empty, loading }: ChartCardProps) {
 // become the 'sum' line. We don't synthesize a sum from the per-phase
 // samples — chargers' clocks aren't aligned tightly enough for that to
 // be meaningful at sub-second resolution.
-function PowerChart({ samples, loading }: { samples: MeterValueSample[]; loading: boolean }) {
+function PowerChart({
+  samples,
+  loading,
+  error,
+}: {
+  samples: MeterValueSample[];
+  loading: boolean;
+  error: unknown;
+}) {
   const { data, phases, hasSum } = useMemo(() => buildPowerSeries(samples), [samples]);
   const empty = data.length === 0;
   return (
-    <ChartCard title="Active power" empty={empty} loading={loading}>
+    <ChartCard title="Active power" empty={empty} loading={loading} error={error}>
       <ChartContainer>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" />
@@ -330,11 +400,19 @@ function PowerChart({ samples, loading }: { samples: MeterValueSample[]; loading
 // Import.Register is reported by the charger as a single (typically
 // Wh) value per sample. We render it as a step-monotone line because
 // it's monotone non-decreasing.
-function EnergyChart({ samples, loading }: { samples: MeterValueSample[]; loading: boolean }) {
+function EnergyChart({
+  samples,
+  loading,
+  error,
+}: {
+  samples: MeterValueSample[];
+  loading: boolean;
+  error: unknown;
+}) {
   const data = useMemo(() => buildEnergySeries(samples), [samples]);
   const empty = data.length === 0;
   return (
-    <ChartCard title="Cumulative energy" empty={empty} loading={loading}>
+    <ChartCard title="Cumulative energy" empty={empty} loading={loading} error={error}>
       <ChartContainer>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" />
@@ -363,7 +441,13 @@ function EnergyChart({ samples, loading }: { samples: MeterValueSample[]; loadin
   );
 }
 
-function PhasesCard({ phases }: { phases: Record<string, PhaseSnapshot> | null }) {
+function PhasesCard({
+  phases,
+  unavailable,
+}: {
+  phases: Record<string, PhaseSnapshot> | null;
+  unavailable: boolean;
+}) {
   const entries = phases ? Object.entries(phases) : [];
   return (
     <Card>
@@ -372,7 +456,11 @@ function PhasesCard({ phases }: { phases: Record<string, PhaseSnapshot> | null }
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No phase telemetry available.</p>
+          <p className="text-sm text-muted-foreground">
+            {unavailable
+              ? 'Archived phase readings could not be loaded.'
+              : 'No phase telemetry available.'}
+          </p>
         ) : (
           <ul className="divide-y rounded-md border" data-testid="phases-list">
             {entries.map(([phase, p]) => (

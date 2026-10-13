@@ -48,7 +48,10 @@ beforeEach(() => {
   fetchCalls.length = 0;
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function _response(frames: CpFramesResponse['frames'] = []): CpFramesResponse {
   return { cp_id: 'CP_001', frames, request_id: 'req-1' };
@@ -140,6 +143,45 @@ describe('OcppLogPanel — rendering', () => {
 });
 
 describe('OcppLogPanel — filters', () => {
+  it('refreshes the time window at request time after the panel has stayed open', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T07:00:00Z'));
+    const user = userEvent.setup();
+    nextResponse.value = _response();
+    render(<OcppLogPanel cpId="CP_001" />);
+    await waitFor(() => expect(fetchCalls.length).toBe(1));
+    expect(fetchCalls[0].params.to).toBe('2026-10-13T07:00:00.000Z');
+
+    vi.setSystemTime(new Date('2026-10-13T09:00:00Z'));
+    await user.click(screen.getByTestId('ocpp-log-refresh'));
+    await waitFor(() => expect(fetchCalls.length).toBe(2));
+    expect(fetchCalls[1].params.to).toBe('2026-10-13T09:00:00.000Z');
+    expect(fetchCalls[1].params.from).toBe('2026-10-13T08:00:00.000Z');
+  });
+
+  it('commits a trimmed action on blur without fetching each keystroke', async () => {
+    const user = userEvent.setup();
+    nextResponse.value = _response();
+    render(<OcppLogPanel cpId="CP_001" />);
+    await waitFor(() => expect(fetchCalls.length).toBe(1));
+    await user.type(screen.getByTestId('ocpp-log-action-input'), '  StatusNotification  ');
+    expect(fetchCalls.length).toBe(1);
+    await user.tab();
+    await waitFor(() => expect(fetchCalls.length).toBe(2));
+    expect(fetchCalls[1].params.action).toBe('StatusNotification');
+  });
+
+  it('does not repeat an Enter commit when the unchanged input later loses focus', async () => {
+    const user = userEvent.setup();
+    nextResponse.value = _response();
+    render(<OcppLogPanel cpId="CP_001" />);
+    await waitFor(() => expect(fetchCalls.length).toBe(1));
+    await user.type(screen.getByTestId('ocpp-log-action-input'), 'MeterValues{Enter}');
+    await waitFor(() => expect(fetchCalls.length).toBe(2));
+    await user.tab();
+    expect(fetchCalls.length).toBe(2);
+  });
+
   it('refetches with direction=outbound when the select changes', async () => {
     const user = userEvent.setup();
     nextResponse.value = _response();
