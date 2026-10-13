@@ -13,7 +13,7 @@
 // protocol's wire shape is snake_case, so each resolver maps between
 // the two.
 
-import { mergeChargePoint } from '@eveys-console/protocol';
+import { mergeChargePoint, withConnectorFreshness } from '@eveys-console/protocol';
 import type {
   ChargePointSummary,
   DeltaForQuery,
@@ -93,7 +93,7 @@ const chargePoints: QueryResolver = {
     const cursor = `gw:cp-list:${Date.now()}`;
     const snapshot: SnapshotForQuery = {
       kind: 'charge-points',
-      rows: data.charge_points,
+      rows: data.charge_points.map(withConnectorFreshness),
       next_cursor: data.next_cursor ?? null,
     };
     if (data.pagination) {
@@ -223,10 +223,9 @@ export function mergeConnectorFromStatusEvent(
   if (!Number.isInteger(connectorId) || connectorId < 0) return row;
   const status = typeof p.status === 'string' ? p.status : null;
   if (!status) return row;
-  const reportedAt =
-    typeof p.chargerReportedAt === 'string' && p.chargerReportedAt
-      ? p.chargerReportedAt
-      : event.timestamp.toISOString();
+  // EventEnvelope.occurred_at is the gateway receive time, also used by
+  // ClickHouse. A charger clock cannot outrank later server observations.
+  const reportedAt = event.timestamp.toISOString();
   const errorCode = typeof p.errorCode === 'string' && p.errorCode !== '' ? p.errorCode : null;
 
   return mergeChargePoint(row, {
@@ -247,7 +246,7 @@ const chargePoint: QueryResolver = {
     const cpId = stringParam(params, 'cp_id');
     const data = (await gateway.getChargePoint(cpId)) as ChargePointSummary;
     const cursor = `gw:cp:${cpId}:${Date.now()}`;
-    return { cursor, snapshot: { kind: 'charge-point', row: data } };
+    return { cursor, snapshot: { kind: 'charge-point', row: withConnectorFreshness(data) } };
   },
   async deltasFromEvent(params, event, gateway) {
     const cpId = stringParam(params, 'cp_id');

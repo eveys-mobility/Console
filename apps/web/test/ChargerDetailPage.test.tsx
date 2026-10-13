@@ -94,7 +94,12 @@ function baseCp(over: Partial<ChargePointSummary> = {}): ChargePointSummary {
     last_heartbeat_at: '2026-05-10T11:48:00+00:00',
     last_status: 'Available',
     connectors: [
-      { connector_id: 1, status: 'Available', error_code: 'NoError', last_changed_at: null },
+      {
+        connector_id: 1,
+        status: 'Available',
+        error_code: 'NoError',
+        last_changed_at: '2026-05-10T11:48:00Z',
+      },
     ],
     ...over,
   };
@@ -189,7 +194,7 @@ describe('ChargerDetailPage — data availability and connector identity', () =>
               connector_id: 0,
               status: 'Faulted',
               error_code: 'InternalError',
-              last_changed_at: null,
+              last_changed_at: '2026-05-10T11:48:00Z',
             },
           ],
         }),
@@ -240,7 +245,7 @@ describe('ChargerDetailPage — data availability and connector identity', () =>
             connector_id,
             status: connector_id === 0 ? 'Available' : 'Charging',
             error_code: null,
-            last_changed_at: null,
+            last_changed_at: '2026-05-10T11:48:00Z',
           })),
         }),
       },

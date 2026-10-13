@@ -23,6 +23,11 @@ export const connectorState = z
     status: z.string(),
     error_code: z.string().nullable(),
     last_changed_at: isoTimestamp.nullable(),
+    status_freshness: z.enum(['current', 'stale', 'unknown']).optional(),
+    stale_reason: z
+      .enum(['before_boot', 'stopped_after_status', 'unverified_timestamp'])
+      .nullable()
+      .optional(),
     /** Vendor-specific error code (OCPP 1.6 StatusNotification). */
     vendor_error_code: z.string().nullable().optional(),
     /** Free-text human-readable detail line on the StatusNotification. */

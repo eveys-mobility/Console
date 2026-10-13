@@ -15,6 +15,7 @@
 // and another Available, in which case RemoteStart is still useful
 // (different connector) and RemoteStop is meaningful too.
 
+import { withConnectorFreshness } from '@eveys-console/protocol';
 import type { ChargePointSummary } from '@eveys-console/protocol';
 
 export const ACTIVE_SESSION_STATUSES = new Set([
@@ -30,21 +31,23 @@ export const STARTABLE_STATUSES = new Set(['Available', 'Preparing']);
 type Connector = ChargePointSummary['connectors'][number];
 
 function isActiveSession(c: Connector): boolean {
-  return ACTIVE_SESSION_STATUSES.has(c.status);
+  return (
+    c.connector_id > 0 && c.status_freshness === 'current' && ACTIVE_SESSION_STATUSES.has(c.status)
+  );
 }
 
 function isStartable(c: Connector): boolean {
-  return STARTABLE_STATUSES.has(c.status);
+  return c.connector_id > 0 && c.status_freshness === 'current' && STARTABLE_STATUSES.has(c.status);
 }
 
 /** Any connector currently inside a session. */
 export function hasActiveSession(cp: ChargePointSummary): boolean {
-  return cp.connectors.some(isActiveSession);
+  return withConnectorFreshness(cp).connectors.some(isActiveSession);
 }
 
 /** Any connector currently free to start a session on. */
 export function hasStartableConnector(cp: ChargePointSummary): boolean {
-  return cp.connectors.some(isStartable);
+  return withConnectorFreshness(cp).connectors.some(isStartable);
 }
 
 export interface CommandAvailability {

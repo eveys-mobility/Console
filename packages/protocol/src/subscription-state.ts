@@ -1,12 +1,42 @@
 import type { ChargePointSummary, DeltaForQuery, SnapshotForQuery } from './queries.js';
 
+// A successful archive read does not make a pre-boot notification current.
+// Retain the reported value for diagnosis, but mark its usability separately.
+export function withConnectorFreshness(row: ChargePointSummary): ChargePointSummary {
+  const boot = row.last_boot_at ? Date.parse(row.last_boot_at) : NaN;
+  return {
+    ...row,
+    connectors: row.connectors.map((connector) => {
+      const observed = connector.last_changed_at ? Date.parse(connector.last_changed_at) : NaN;
+      if (Number.isFinite(boot) && Number.isFinite(observed) && observed < boot) {
+        return {
+          ...connector,
+          status_freshness: 'stale' as const,
+          stale_reason: 'before_boot' as const,
+        };
+      }
+      if (!Number.isFinite(boot) || !Number.isFinite(observed)) {
+        return {
+          ...connector,
+          status_freshness: 'unknown' as const,
+          stale_reason: 'unverified_timestamp' as const,
+        };
+      }
+      // Preserve additional server evidence (for example a later physical Stop).
+      if (connector.status_freshness === 'stale' || connector.status_freshness === 'unknown')
+        return connector;
+      return { ...connector, status_freshness: 'current' as const, stale_reason: null };
+    }),
+  };
+}
+
 // Gateway refetches can lag the Kafka tail. Keep each connector's newest
 // observed value, comparing ISO offsets by their UTC instant.
 export function mergeChargePoint(
   previous: ChargePointSummary | undefined,
   incoming: ChargePointSummary,
 ): ChargePointSummary {
-  if (!previous || previous.cp_id !== incoming.cp_id) return incoming;
+  if (!previous || previous.cp_id !== incoming.cp_id) return withConnectorFreshness(incoming);
   const connectors = new Map(
     previous.connectors.map((connector) => [connector.connector_id, connector]),
   );
@@ -20,7 +50,7 @@ export function mergeChargePoint(
     connectors.set(connector.connector_id, connector);
     accepted = true;
   }
-  return {
+  return withConnectorFreshness({
     ...incoming,
     last_status:
       incoming.connectors.length > 0 && !accepted ? previous.last_status : incoming.last_status,
@@ -28,7 +58,7 @@ export function mergeChargePoint(
     ...(incoming.connectors_state === 'unavailable' && previous.connectors_last_successful_at
       ? { connectors_last_successful_at: previous.connectors_last_successful_at }
       : {}),
-  };
+  });
 }
 
 // Histories keep their existing append consumers. Entity snapshots accumulate

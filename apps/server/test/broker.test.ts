@@ -47,7 +47,7 @@ function makeFakeGateway(opts: FakeGatewayOptions = {}) {
     model: 'X1',
     firmware_version: '1.0',
     serial_number: 'SN1',
-    last_boot_at: null,
+    last_boot_at: '2026-05-01T00:00:00Z',
     last_heartbeat_at: null,
     last_status: opts.last_status ?? 'Available',
     last_seen_seq: 0,
@@ -176,6 +176,8 @@ describe('Broker — charge-point (single) deltas', () => {
         status: 'Charging',
         error_code: 'NoError',
         last_changed_at: '2026-10-13T10:00:00.000Z',
+        status_freshness: 'current',
+        stale_reason: null,
       },
     ]);
   });
@@ -679,7 +681,9 @@ describe('Broker — charge-points (list) deltas', () => {
         connector_id: 2,
         status: 'Charging',
         error_code: 'NoError',
-        last_changed_at: '2026-05-11T09:59:55Z',
+        last_changed_at: '2026-05-11T10:00:00.000Z',
+        status_freshness: 'current',
+        stale_reason: null,
       },
     ]);
   });
@@ -711,7 +715,7 @@ describe('Broker — charge-points (list) deltas', () => {
       topic: 'cp.status',
       cpId: 'CP_M',
       cursor: 'k:cp.status:0:15',
-      timestamp: new Date('2026-05-11T10:01:30Z'),
+      timestamp: new Date('2026-05-11T10:00:00Z'),
       payload: {
         connectorId: 1,
         status: 'Preparing',
