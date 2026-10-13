@@ -356,6 +356,31 @@ describe('SystemPage — alerts summary', () => {
 });
 
 describe('SystemPage — services placement', () => {
+  it('shows degraded gateway and failed ClickHouse separately without turning diagnostics into a service', async () => {
+    nextSysStatus = healthySys({
+      gateway: {
+        ok: false,
+        detail: 'status=degraded',
+        components: {
+          postgres: 'ok',
+          redis: 'ok',
+          clickhouse: 'error',
+          clickhouse_error_class: 'ConnectionError',
+        },
+      },
+    });
+    renderPage();
+    expect(await screen.findByTestId('service-pill-gateway')).toHaveAttribute(
+      'data-tone',
+      'warning',
+    );
+    expect(screen.getByTestId('service-pill-gw-clickhouse')).toHaveTextContent('ClickHouse');
+    expect(screen.getByTestId('service-pill-gw-clickhouse')).toHaveAttribute(
+      'data-tone',
+      'destructive',
+    );
+    expect(screen.queryByTestId('service-pill-gw-clickhouse_error_class')).toBeNull();
+  });
   it('renders the Services pills above the alerts summary and metrics row', async () => {
     renderPage();
     const services = await screen.findByTestId('service-status-row');
@@ -390,6 +415,8 @@ describe('SystemPage — headline metrics', () => {
     renderPage();
     const tile = await screen.findByTestId('metric-sessions');
     expect(within(tile).getByText('2')).toBeInTheDocument();
+    expect(within(tile).queryByText(/chargers charging/)).toBeNull();
+    expect(within(tile).getByText(/open transaction records/)).toBeInTheDocument();
   });
 
   it('renders faults tile counting cps with any Faulted connector', async () => {

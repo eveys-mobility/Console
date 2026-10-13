@@ -83,6 +83,10 @@ export const chargePointSummary = z
     last_diagnostics_status: z.string().nullable().optional(),
     last_firmware_status: z.string().nullable().optional(),
     connectors: z.array(connectorState),
+    connectors_state: z.enum(['available', 'unavailable']).optional(),
+    connectors_source: z.literal('clickhouse').optional(),
+    connectors_error: z.enum(['query_failed', 'not_configured']).nullable().optional(),
+    connectors_last_successful_at: isoTimestamp.nullable().optional(),
     /** Currently-Active reservations on this charger, inlined by the
      *  gateway's detail endpoint so the Commands tab can populate
      *  the CancelReservation dropdown without a second round-trip.

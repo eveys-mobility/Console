@@ -15,9 +15,10 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import type { ChargePointSummary } from '@eveys-console/protocol';
+import { mergeChargePoint, type ChargePointSummary } from '@eveys-console/protocol';
 
 import { ChargerSpecChips } from '@/components/ChargerSpecChips';
+import { ConnectorDataNotice, physicalConnectors } from '@/components/ConnectorDataNotice';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -164,7 +165,8 @@ export function FleetPage() {
     const byId = new Map<string, ChargePointSummary>(sub.snapshot.rows.map((r) => [r.cp_id, r]));
     if (sub.lastDelta && sub.lastDelta.kind === 'charge-points') {
       const d = sub.lastDelta;
-      if (d.op === 'upsert' && d.row) byId.set(d.row.cp_id, d.row);
+      if (d.op === 'upsert' && d.row)
+        byId.set(d.row.cp_id, mergeChargePoint(byId.get(d.row.cp_id), d.row));
       if (d.op === 'remove' && d.cp_id) byId.delete(d.cp_id);
     }
     return {
@@ -190,7 +192,7 @@ export function FleetPage() {
     return allRows.filter((r) => chargePointFaultLevel(r) !== 'ok');
   }, [allRows, faultsOnly]);
 
-  if (sub.error) {
+  if (sub.error && !sub.snapshot) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Couldn't load charge points</AlertTitle>
@@ -209,6 +211,12 @@ export function FleetPage() {
 
   return (
     <div className="space-y-4">
+      {sub.error ? (
+        <Alert>
+          <AlertTitle>Live data unavailable</AlertTitle>
+          <AlertDescription>{sub.error}</AlertDescription>
+        </Alert>
+      ) : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">
@@ -578,7 +586,8 @@ function FleetTableRow({
           <StatusPill status={row.last_status} />
         </TableCell>
         <TableCell>
-          <ConnectorsSummary connectors={row.connectors} />
+          <ConnectorsSummary connectors={physicalConnectors(row)} />
+          <ConnectorDataNotice cp={row} />
         </TableCell>
         <TableCell className="text-sm">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -603,7 +612,11 @@ function FleetTableRow({
       {isOpen ? (
         <TableRow className="bg-muted/30 hover:bg-muted/30">
           <TableCell colSpan={11} className="p-0">
-            <ConnectorDetail connectors={row.connectors} cpId={row.cp_id} />
+            {row.connectors_state === 'unavailable' && physicalConnectors(row).length === 0 ? (
+              <ConnectorDataNotice cp={row} />
+            ) : (
+              <ConnectorDetail connectors={physicalConnectors(row)} cpId={row.cp_id} />
+            )}
           </TableCell>
         </TableRow>
       ) : null}
@@ -649,11 +662,14 @@ function FleetCard({ row }: { row: ChargePointSummary }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {row.connectors.length === 0 ? (
-            <span className="text-xs text-muted-foreground">no connectors reported</span>
+          {physicalConnectors(row).length === 0 ? (
+            row.connectors_state === 'unavailable' ? null : (
+              <span className="text-xs text-muted-foreground">no connectors reported</span>
+            )
           ) : (
-            row.connectors.map((c) => <ConnectorDot key={c.connector_id} connector={c} />)
+            physicalConnectors(row).map((c) => <ConnectorDot key={c.connector_id} connector={c} />)
           )}
+          <ConnectorDataNotice cp={row} />
         </div>
 
         <dl className="space-y-1 text-xs text-muted-foreground">

@@ -66,6 +66,15 @@ export async function registerWsRoute(
     recordWsConnection(1);
 
     deps.broker.registerConnection(connectionId, (subscriptionId, delta) => {
+      if ('error' in delta) {
+        send(socket, {
+          v: PROTOCOL_VERSION,
+          type: 'error',
+          subscriptionId,
+          error: { code: 'upstream_unavailable', message: delta.error },
+        });
+        return;
+      }
       send(socket, {
         v: PROTOCOL_VERSION,
         type: 'delta',

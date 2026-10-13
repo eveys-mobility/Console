@@ -13,6 +13,7 @@
 // protocol's wire shape is snake_case, so each resolver maps between
 // the two.
 
+import { mergeChargePoint } from '@eveys-console/protocol';
 import type {
   ChargePointSummary,
   DeltaForQuery,
@@ -129,12 +130,8 @@ const chargePoints: QueryResolver = {
     // call per event. Acceptable while load is low; a future commit
     // will replace this with an in-memory snapshot store fed by the
     // same Kafka tail.
-    let row: ChargePointSummary;
-    try {
-      row = (await gateway.getChargePoint(event.cpId)) as ChargePointSummary;
-    } catch {
-      return [];
-    }
+    let row = (await gateway.getChargePoint(event.cpId)) as ChargePointSummary;
+    if (row.cp_id !== event.cpId) throw new Error('Gateway charger identity mismatch');
 
     // The gateway sources `connectors[]` from ClickHouse (`cp_status`),
     // which the ingestor fills in batches. Right after a charger emits
@@ -216,14 +213,14 @@ const chargePoints: QueryResolver = {
 // UI doesn't have to wait for the gateway's ClickHouse-backed
 // connectors[] to catch up. Idempotent: if the row already carries a
 // newer entry for the same connector, the event is dropped.
-function mergeConnectorFromStatusEvent(
+export function mergeConnectorFromStatusEvent(
   row: ChargePointSummary,
   event: KafkaEvent,
 ): ChargePointSummary {
   const p = event.payload as Record<string, unknown> | null;
   if (!p || typeof p !== 'object') return row;
   const connectorId = Number(p.connectorId ?? NaN);
-  if (!Number.isFinite(connectorId)) return row;
+  if (!Number.isInteger(connectorId) || connectorId < 0) return row;
   const status = typeof p.status === 'string' ? p.status : null;
   if (!status) return row;
   const reportedAt =
@@ -232,19 +229,17 @@ function mergeConnectorFromStatusEvent(
       : event.timestamp.toISOString();
   const errorCode = typeof p.errorCode === 'string' && p.errorCode !== '' ? p.errorCode : null;
 
-  const existing = row.connectors.find((c) => c.connector_id === connectorId);
-  if (existing && existing.last_changed_at && existing.last_changed_at >= reportedAt) {
-    return row;
-  }
-  const next = row.connectors.filter((c) => c.connector_id !== connectorId);
-  next.push({
-    connector_id: connectorId,
-    status,
-    error_code: errorCode,
-    last_changed_at: reportedAt,
+  return mergeChargePoint(row, {
+    ...row,
+    connectors: [
+      {
+        connector_id: connectorId,
+        status,
+        error_code: errorCode,
+        last_changed_at: reportedAt,
+      },
+    ],
   });
-  next.sort((a, b) => a.connector_id - b.connector_id);
-  return { ...row, connectors: next };
 }
 
 const chargePoint: QueryResolver = {
@@ -277,12 +272,9 @@ const chargePoint: QueryResolver = {
     // Same approach as the list resolver: re-fetch the full row from
     // the gateway so the UI gets a complete update. This page is one
     // charger so the cost is bounded.
-    let row: ChargePointSummary;
-    try {
-      row = (await gateway.getChargePoint(cpId)) as ChargePointSummary;
-    } catch {
-      return [];
-    }
+    let row = (await gateway.getChargePoint(cpId)) as ChargePointSummary;
+    if (row.cp_id !== cpId) throw new Error('Gateway charger identity mismatch');
+    if (event.topic === 'cp.status') row = mergeConnectorFromStatusEvent(row, event);
     const delta: DeltaForQuery = { kind: 'charge-point', row };
     return [{ cursor: event.cursor, delta }];
   },
@@ -299,15 +291,25 @@ const transactionsActive: QueryResolver = {
     };
   },
   async deltasFromEvent(_params, event) {
-    if (event.topic !== 'tx.started') return [];
+    if (event.topic !== 'tx.started' && event.topic !== 'tx.stopped') return [];
     const p = event.payload as Record<string, unknown> | null;
     if (!p || typeof p !== 'object') return [];
+    const transactionId = Number(p.transactionId ?? NaN);
+    if (!Number.isInteger(transactionId)) return [];
+    if (event.topic === 'tx.stopped') {
+      return [
+        {
+          cursor: event.cursor,
+          delta: { kind: 'transactions-active', op: 'remove', transaction_id: transactionId },
+        },
+      ];
+    }
     // The wire shape mirrors the gateway's GET /api/v1/transactions row.
     // For a delta from a tx.started event we only have a subset; the
     // missing fields (stopped_*, consumed_wh) are null because the
     // session is still open.
     const row = {
-      transaction_id: Number(p.transactionId ?? 0),
+      transaction_id: transactionId,
       cp_id: event.cpId ?? '',
       connector_id: Number(p.connectorId ?? 0),
       id_tag: String(p.idTag ?? ''),

@@ -53,6 +53,91 @@ afterEach(() => {
 });
 
 describe('ConsoleClient', () => {
+  it('delivers a scoped refresh error only to its active subscription', async () => {
+    const client = new ConsoleClient({ url: 'ws://fake/ws', token: 'fake' });
+    client.connect();
+    lastSocket?.onopen?.({});
+    const onError = vi.fn();
+    const pending = client.subscribe(
+      'charge-point',
+      { cp_id: 'A' },
+      { onSnapshot: vi.fn(), onDelta: vi.fn(), onError },
+    );
+    const request = JSON.parse(lastSocket!.send.mock.calls.at(-1)![0]);
+    lastSocket?.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        type: 'subscription.accepted',
+        inReplyTo: request.id,
+        subscriptionId: 'sub-A',
+      }),
+    });
+    await pending;
+    lastSocket?.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        type: 'error',
+        subscriptionId: 'other',
+        error: { code: 'upstream_unavailable', message: 'ignore' },
+      }),
+    });
+    lastSocket?.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        type: 'error',
+        subscriptionId: 'sub-A',
+        error: { code: 'upstream_unavailable', message: 'refresh failed' },
+      }),
+    });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('refresh failed');
+    client.close();
+  });
+
+  it('reissues a subscription once and keeps its unsubscribe handle valid across reconnect', async () => {
+    vi.useFakeTimers();
+    const client = new ConsoleClient({ url: 'ws://fake/ws', token: 'fake' });
+    client.connect();
+    lastSocket?.onopen?.({});
+    const pending = client.subscribe(
+      'charge-point',
+      { cp_id: 'A' },
+      { onSnapshot: vi.fn(), onDelta: vi.fn() },
+    );
+    const request = JSON.parse(lastSocket!.send.mock.calls.at(-1)![0]);
+    lastSocket?.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        type: 'subscription.accepted',
+        inReplyTo: request.id,
+        subscriptionId: 'old-A',
+      }),
+    });
+    const handle = await pending;
+    lastSocket?.onclose?.({ code: 1001, reason: 'restart' });
+    vi.advanceTimersByTime(1000);
+    lastSocket?.onopen?.({});
+    expect(lastSocket!.send).toHaveBeenCalledTimes(1);
+    const replacement = JSON.parse(lastSocket!.send.mock.calls[0]![0]);
+    lastSocket?.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        type: 'subscription.accepted',
+        inReplyTo: replacement.id,
+        subscriptionId: 'new-A',
+      }),
+    });
+    handle.unsubscribe();
+    expect(JSON.parse(lastSocket!.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: 'unsubscribe',
+      subscriptionId: 'new-A',
+    });
+    lastSocket?.onclose?.({ code: 1001, reason: 'restart' });
+    vi.advanceTimersByTime(1000);
+    lastSocket?.onopen?.({});
+    expect(lastSocket!.send).not.toHaveBeenCalled();
+    client.close();
+  });
   it('fires onAuthRejected and stops reconnecting when server closes with 4401', () => {
     const onAuthRejected = vi.fn();
     const onStatus = vi.fn<(s: ConnectionStatus) => void>();

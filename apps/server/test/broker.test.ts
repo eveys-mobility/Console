@@ -110,6 +110,172 @@ describe('Broker — subscribe and snapshot', () => {
 });
 
 describe('Broker — charge-point (single) deltas', () => {
+  it('retains both connectors when a new fleet row has concurrent first status refetches', async () => {
+    const kafka = new FakeKafka();
+    const { client, getSpy } = makeFakeGateway();
+    const initial = await getSpy('NEW');
+    const broker = new Broker(kafka as unknown as KafkaTail, client, silentLog);
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'charge-points', {});
+    let finishOld!: (row: typeof initial) => void;
+    getSpy.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+    );
+    getSpy.mockResolvedValueOnce(initial);
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'NEW',
+      cursor: 'one',
+      timestamp: new Date('2026-10-13T10:00:00Z'),
+      payload: { connectorId: 1, status: 'Charging' },
+    });
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'NEW',
+      cursor: 'two',
+      timestamp: new Date('2026-10-13T10:01:00Z'),
+      payload: { connectorId: 2, status: 'Charging' },
+    });
+    await flushAsync();
+    finishOld(initial);
+    await flushAsync();
+    expect(
+      deliver.mock.calls
+        .at(-1)?.[1]
+        .delta.row.connectors.map((c: { connector_id: number }) => c.connector_id),
+    ).toEqual([1, 2]);
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+  it('shows a connector status event in detail even when the gateway archive is empty', async () => {
+    const kafka = new FakeKafka();
+    const broker = new Broker(
+      kafka as unknown as KafkaTail,
+      fakeGateway({ connectors: [] }),
+      silentLog,
+    );
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'charge-point', { cp_id: 'A' });
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'A',
+      cursor: '1',
+      timestamp: new Date('2026-10-13T10:00:00Z'),
+      payload: { connectorId: 2, status: 'Charging', errorCode: 'NoError' },
+    });
+    await flushAsync();
+    expect(deliver.mock.calls[0]?.[1].delta.row.connectors).toEqual([
+      {
+        connector_id: 2,
+        status: 'Charging',
+        error_code: 'NoError',
+        last_changed_at: '2026-10-13T10:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('retains both live connectors across status and boot refetches', async () => {
+    const kafka = new FakeKafka();
+    const broker = new Broker(
+      kafka as unknown as KafkaTail,
+      fakeGateway({ connectors: [] }),
+      silentLog,
+    );
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'charge-point', { cp_id: 'A' });
+    for (const id of [1, 2]) {
+      kafka.emit({
+        topic: 'cp.status',
+        cpId: 'A',
+        cursor: String(id),
+        timestamp: new Date(`2026-10-13T10:0${id}:00Z`),
+        payload: { connectorId: id, status: 'Charging' },
+      });
+      await flushAsync();
+    }
+    kafka.emit({
+      topic: 'cp.boot',
+      cpId: 'A',
+      cursor: '3',
+      timestamp: new Date('2026-10-13T10:03:00Z'),
+      payload: {},
+    });
+    await flushAsync();
+    expect(
+      deliver.mock.calls
+        .at(-1)?.[1]
+        .delta.row.connectors.map((c: { connector_id: number }) => c.connector_id),
+    ).toEqual([1, 2]);
+  });
+
+  it('drops an older refetch completing after a newer event', async () => {
+    const kafka = new FakeKafka();
+    const { client, getSpy } = makeFakeGateway();
+    const initial = await getSpy('A');
+    const broker = new Broker(kafka as unknown as KafkaTail, client, silentLog);
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'charge-point', { cp_id: 'A' });
+    let finishOld!: (row: typeof initial) => void;
+    getSpy.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+    );
+    getSpy.mockResolvedValueOnce({ ...initial, last_status: 'Charging' });
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'A',
+      cursor: 'old',
+      timestamp: new Date('2026-10-13T10:00:00Z'),
+      payload: { connectorId: 1, status: 'Available' },
+    });
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'A',
+      cursor: 'new',
+      timestamp: new Date('2026-10-13T10:01:00Z'),
+      payload: { connectorId: 1, status: 'Charging' },
+    });
+    await flushAsync();
+    finishOld(initial);
+    await flushAsync();
+    expect(deliver.mock.calls.at(-1)?.[1].delta.row.connectors[0].status).toBe('Charging');
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a refetch failure to the subscription without exposing the upstream message', async () => {
+    const kafka = new FakeKafka();
+    const { client, getSpy } = makeFakeGateway();
+    const broker = new Broker(kafka as unknown as KafkaTail, client, silentLog);
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'charge-point', { cp_id: 'A' });
+    getSpy.mockRejectedValueOnce(new Error('sensitive upstream payload'));
+    kafka.emit({
+      topic: 'cp.status',
+      cpId: 'A',
+      cursor: 'error',
+      timestamp: new Date(),
+      payload: { connectorId: 1, status: 'Charging' },
+    });
+    await flushAsync();
+    expect(deliver.mock.calls.at(-1)?.[1]).toMatchObject({
+      error: 'Gateway refresh failed. Showing last known data.',
+    });
+    expect(JSON.stringify(deliver.mock.calls)).not.toContain('sensitive upstream');
+  });
   it('delivers a delta when a status event arrives for the subscribed cp', async () => {
     const kafka = new FakeKafka();
     const broker = new Broker(kafka as unknown as KafkaTail, fakeGateway(), silentLog);
@@ -226,6 +392,73 @@ describe('Broker — charge-point (single) deltas', () => {
     await flushAsync();
 
     expect(deliver).not.toHaveBeenCalled();
+  });
+});
+
+describe('Broker — active transaction stop', () => {
+  it.each([true, false])(
+    'does not reopen a stopped transaction after a late start (settled stop: %s)',
+    async (settleStop) => {
+      const kafka = new FakeKafka();
+      const broker = new Broker(kafka as unknown as KafkaTail, fakeGateway(), silentLog);
+      broker.start();
+      const deliver = vi.fn();
+      broker.registerConnection('c1', deliver);
+      await broker.subscribe('c1', 'transactions-active', {});
+      kafka.emit({
+        topic: 'tx.stopped',
+        cpId: 'CP_A',
+        cursor: 'stop',
+        timestamp: new Date('2026-10-13T10:02:00Z'),
+        payload: { transactionId: 7 },
+      });
+      if (settleStop) await flushAsync();
+      kafka.emit({
+        topic: 'tx.started',
+        cpId: 'CP_A',
+        cursor: 'late-start',
+        timestamp: new Date('2026-10-13T10:01:00Z'),
+        payload: { transactionId: 7 },
+      });
+      kafka.emit({
+        topic: 'tx.started',
+        cpId: 'CP_A',
+        cursor: 'new-start',
+        timestamp: new Date('2026-10-13T10:03:00Z'),
+        payload: { transactionId: 8 },
+      });
+      await flushAsync();
+      expect(deliver.mock.calls.map(([, delivery]) => delivery.delta)).toEqual([
+        { kind: 'transactions-active', op: 'remove', transaction_id: 7 },
+        expect.objectContaining({
+          kind: 'transactions-active',
+          op: 'upsert',
+          row: expect.objectContaining({ transaction_id: 8 }),
+        }),
+      ]);
+    },
+  );
+
+  it('emits a remove when the active transaction stops', async () => {
+    const kafka = new FakeKafka();
+    const broker = new Broker(kafka as unknown as KafkaTail, fakeGateway(), silentLog);
+    broker.start();
+    const deliver = vi.fn();
+    broker.registerConnection('c1', deliver);
+    await broker.subscribe('c1', 'transactions-active', {});
+    kafka.emit({
+      topic: 'tx.stopped',
+      cpId: 'A',
+      cursor: 'stop',
+      timestamp: new Date(),
+      payload: { transactionId: 7 },
+    });
+    await flushAsync();
+    expect(deliver.mock.calls.at(-1)?.[1].delta).toEqual({
+      kind: 'transactions-active',
+      op: 'remove',
+      transaction_id: 7,
+    });
   });
 });
 

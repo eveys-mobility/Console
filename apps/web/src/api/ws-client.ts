@@ -70,6 +70,7 @@ interface PendingSubscribe {
   resolveHandle: (h: SubscriptionHandle) => void;
   rejectHandle: (err: Error) => void;
   inFlightId: string;
+  replaces?: ActiveSubscription;
 }
 
 interface ActiveSubscription {
@@ -165,6 +166,7 @@ export class ConsoleClient {
     this.socket = socket;
 
     socket.onopen = () => {
+      if (this.socket !== socket) return;
       this.reconnectAttempt = 0;
       this.setStatus('open');
       this.emitDiagnostics();
@@ -183,14 +185,17 @@ export class ConsoleClient {
         );
       }
       for (const sub of this.active.values()) {
+        if ([...this.pendingSubscribes.values()].some((pending) => pending.replaces === sub))
+          continue;
         const id = this.requestId();
         this.pendingSubscribes.set(id, {
           query: sub.query,
           params: sub.params,
           handlers: sub.handlers,
           resolveHandle: () => undefined,
-          rejectHandle: () => undefined,
+          rejectHandle: (err) => sub.handlers.onError?.(err.message),
           inFlightId: id,
+          replaces: sub,
         });
         socket.send(
           JSON.stringify({
@@ -205,6 +210,7 @@ export class ConsoleClient {
     };
 
     socket.onmessage = (ev) => {
+      if (this.socket !== socket) return;
       let msg: ServerMessage;
       try {
         msg = serverMessage.parse(JSON.parse(ev.data));
@@ -216,6 +222,7 @@ export class ConsoleClient {
     };
 
     socket.onclose = (ev) => {
+      if (this.socket !== socket) return;
       this.setStatus('closed');
       this.lastCloseCode = ev.code;
       this.lastCloseReason = ev.reason || null;
@@ -251,10 +258,25 @@ export class ConsoleClient {
       case 'subscription.accepted': {
         const pending = this.pendingSubscribes.get(msg.inReplyTo);
         if (!pending) return;
-        const handle: SubscriptionHandle = {
+        if (
+          pending.replaces &&
+          this.active.get(pending.replaces.handle.subscriptionId) !== pending.replaces
+        ) {
+          this.send({
+            v: PROTOCOL_VERSION,
+            id: this.requestId(),
+            type: 'unsubscribe',
+            subscriptionId: msg.subscriptionId,
+          });
+          this.pendingSubscribes.delete(msg.inReplyTo);
+          return;
+        }
+        const handle: SubscriptionHandle = pending.replaces?.handle ?? {
           subscriptionId: msg.subscriptionId,
-          unsubscribe: () => this.unsubscribe(msg.subscriptionId),
+          unsubscribe: () => this.unsubscribe(handle.subscriptionId),
         };
+        if (pending.replaces) this.active.delete(handle.subscriptionId);
+        handle.subscriptionId = msg.subscriptionId;
         this.active.set(msg.subscriptionId, {
           handle,
           query: pending.query,
@@ -282,6 +304,8 @@ export class ConsoleClient {
         return;
       }
       case 'error': {
+        if (msg.subscriptionId)
+          this.active.get(msg.subscriptionId)?.handlers.onError?.(msg.error.message);
         const inReplyTo = msg.inReplyTo;
         if (inReplyTo) {
           const pending = this.pendingSubscribes.get(inReplyTo);

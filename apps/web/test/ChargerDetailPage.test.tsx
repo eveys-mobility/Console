@@ -50,6 +50,9 @@ vi.mock('@/components/StatisticsCard', () => ({
 vi.mock('@/components/TransactionsHistory', () => ({
   TransactionsHistory: () => <div data-testid="mock-transactions" />,
 }));
+vi.mock('@/api/uptime-client', () => ({
+  fetchCpUptime: vi.fn().mockRejectedValue(new Error('isolated uptime unavailable')),
+}));
 
 let isPhone = false;
 vi.mock('@/lib/use-breakpoint', () => ({
@@ -130,6 +133,21 @@ afterEach(() => {
 });
 
 describe('ChargerDetailPage — snapshot / lastDelta merge', () => {
+  it('never renders another charger delta on this route', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({ cp_id: 'cp_TEST', firmware_version: 'right' }),
+      },
+      lastDelta: {
+        kind: 'charge-point',
+        row: baseCp({ cp_id: 'OTHER', firmware_version: 'wrong' }),
+      },
+    };
+    renderPage();
+    expect(screen.getByText(/firmware right/)).toBeInTheDocument();
+    expect(screen.queryByText(/firmware wrong/)).toBeNull();
+  });
   // Regression: the page used to render `sub.snapshot.row` directly,
   // so a fresh cp.boot / cp.status delta never showed up until the
   // next snapshot refresh. The detail page now merges `lastDelta` in.
@@ -157,6 +175,81 @@ describe('ChargerDetailPage — Commands tab', () => {
     renderPage();
     await openCommandsTab(user);
     expect(screen.getByTestId('mock-commands-console')).toBeInTheDocument();
+  });
+});
+
+describe('ChargerDetailPage — data availability and connector identity', () => {
+  it('describes connector zero faults as a controller fault', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          connectors: [
+            {
+              connector_id: 0,
+              status: 'Faulted',
+              error_code: 'InternalError',
+              last_changed_at: null,
+            },
+          ],
+        }),
+      },
+    };
+    renderPage();
+    expect(screen.getByText('Faulted — controller')).toBeInTheDocument();
+    expect(screen.queryByText('Faulted — 1 connector')).toBeNull();
+  });
+  it('keeps the charger visible after a refresh failure', () => {
+    nextSubResult = {
+      error: 'Gateway refresh failed. Showing last known data.',
+      snapshot: { kind: 'charge-point', row: baseCp() },
+    };
+    renderPage();
+    expect(screen.getByText(/firmware 1\.0\.0/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing last known data/)).toBeInTheDocument();
+  });
+
+  it('shows unavailable connector data rather than a confirmed empty state', async () => {
+    const user = userEvent.setup();
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          connectors: [],
+          connectors_state: 'unavailable',
+          connectors_source: 'clickhouse',
+          connectors_error: 'query_failed',
+          connectors_last_successful_at: null,
+        }),
+      },
+    };
+    renderPage();
+    expect(screen.getByTestId('detail-tab-connectors')).toHaveTextContent('—');
+    await user.click(screen.getByTestId('detail-tab-connectors'));
+    expect(screen.getAllByText(/Connector data unavailable/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('No connectors reported.')).toBeNull();
+  });
+
+  it('counts only physical connectors and displays connector zero as the controller', async () => {
+    const user = userEvent.setup();
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          connectors: [0, 1, 2].map((connector_id) => ({
+            connector_id,
+            status: connector_id === 0 ? 'Available' : 'Charging',
+            error_code: null,
+            last_changed_at: null,
+          })),
+        }),
+      },
+    };
+    renderPage();
+    expect(screen.getByTestId('detail-tab-connectors')).toHaveTextContent('Connectors2');
+    expect(screen.getByText('controller: Available')).toBeInTheDocument();
+    await user.click(screen.getByTestId('detail-tab-connectors'));
+    expect(screen.getAllByRole('row')).toHaveLength(3);
   });
 });
 

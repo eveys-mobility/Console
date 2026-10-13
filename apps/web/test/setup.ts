@@ -3,6 +3,12 @@
 
 import '@testing-library/jest-dom/vitest';
 
+// Every HTTP dependency must be explicitly faked by its test. The OS
+// network-deny sandbox is a second barrier, including localhost.
+globalThis.fetch = () => {
+  throw new Error('Unexpected fetch in isolated test');
+};
+
 // matchMedia: jsdom doesn't implement it. Our useIsBelow() hook reads
 // it on first render and subscribes to change events. Default to
 // "matches: false" so a fresh test renders the desktop layout

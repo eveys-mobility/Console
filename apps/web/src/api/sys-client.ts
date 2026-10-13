@@ -13,7 +13,7 @@ export interface SysStatus {
   console: { uptime_seconds: number; started_at: string };
   gateway: ComponentStatus & {
     version?: string;
-    components?: Record<string, string>;
+    components?: Record<string, string | null>;
   };
   kafka: ComponentStatus & { topics?: string[]; consumer_running?: boolean };
   connections: { websockets: number };

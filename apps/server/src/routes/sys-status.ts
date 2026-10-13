@@ -28,7 +28,7 @@ interface SysStatusResponse {
   };
   gateway: ComponentStatus & {
     version?: string;
-    components?: Record<string, string>;
+    components?: Record<string, string | null>;
   };
   kafka: ComponentStatus & {
     topics?: string[];
@@ -80,7 +80,7 @@ async function probeGatewayHealth(gateway: GatewayClient): Promise<SysStatusResp
     const body = (await gateway.health()) as {
       status?: string;
       version?: string;
-      components?: Record<string, string>;
+      components?: Record<string, string | null>;
     };
     const latency = Date.now() - t0;
     if (body.status !== 'ok') {
@@ -109,11 +109,13 @@ async function probeGatewayHealth(gateway: GatewayClient): Promise<SysStatusResp
 
 function probeKafka(kafka: KafkaTail): SysStatusResponse['kafka'] {
   const running = kafka.isRunning();
+  const topics = kafka.subscribedTopics();
   const base: SysStatusResponse['kafka'] = {
-    ok: running,
+    ok: running && topics.length > 0,
     consumer_running: running,
-    topics: kafka.subscribedTopics(),
+    topics,
   };
   if (!running) base.detail = 'consumer not running';
+  else if (topics.length === 0) base.detail = 'consumer has no subscribed topics';
   return base;
 }

@@ -6,11 +6,11 @@ import { randomUUID } from 'node:crypto';
 import type { Logger } from '../logger.js';
 import type { KafkaEvent, KafkaTail } from '../kafka/tail.js';
 import type { GatewayClient } from '../rest/gateway-client.js';
-import { resolveQuery } from './queries.js';
-import type { Delta, Snapshot, Subscription } from './types.js';
-import type { QueryName, QueryParams } from '@eveys-console/protocol';
+import { mergeConnectorFromStatusEvent, resolveQuery } from './queries.js';
+import type { Delta, Snapshot, Subscription, SubscriptionError } from './types.js';
+import { applySubscriptionDelta, type QueryName, type QueryParams } from '@eveys-console/protocol';
 
-export type DeliveryHandler = (subscriptionId: string, delta: Delta) => void;
+export type DeliveryHandler = (subscriptionId: string, delta: Delta | SubscriptionError) => void;
 
 interface ConnectionState {
   connectionId: string;
@@ -64,11 +64,20 @@ export class Broker {
     if (!conn) throw new Error(`unknown connection ${connectionId}`);
 
     const subscriptionId = randomUUID();
-    const sub: Subscription = { id: subscriptionId, query, params };
-
     const resolver = resolveQuery(query);
     const snapshot = await resolver.snapshot(params, this.gateway);
-
+    if (this.connections.get(connectionId) !== conn)
+      throw new Error('Connection closed during subscribe');
+    const sub: Subscription = {
+      id: subscriptionId,
+      query,
+      params,
+      snapshot: snapshot.snapshot,
+      sequence: 0,
+      applied: new Map(),
+      pendingStatus: new Map(),
+      stoppedTransactions: new Set(),
+    };
     conn.subscriptions.set(subscriptionId, sub);
     return { subscriptionId, snapshot };
   }
@@ -89,27 +98,103 @@ export class Broker {
     for (const conn of this.connections.values()) {
       for (const sub of conn.subscriptions.values()) {
         const resolver = resolveQuery(sub.query);
+        const sequence = ++sub.sequence;
+        const key =
+          sub.query === 'charge-points' || sub.query === 'charge-point' ? event.cpId : null;
+        // Keep in-flight status events even before a new charger has a fleet
+        // row. The next completed refetch folds in every observed connector.
+        if (
+          event.topic === 'cp.status' &&
+          key &&
+          (sub.query === 'charge-points' || sub.params.cp_id === key)
+        ) {
+          const pending = sub.pendingStatus.get(key) ?? [];
+          pending.push(event);
+          sub.pendingStatus.set(key, pending);
+        }
+        const current = () =>
+          this.connections.get(conn.connectionId) === conn &&
+          conn.subscriptions.get(sub.id) === sub;
         void resolver
           .deltasFromEvent(sub.params, event, this.gateway)
           .then((deltas) => {
-            for (const delta of deltas) {
+            if (
+              !current() ||
+              deltas.length === 0 ||
+              (key && sequence < (sub.applied.get(key) ?? 0))
+            )
+              return;
+            if (key) sub.applied.set(key, sequence);
+            for (const raw of deltas) {
+              let delta = raw;
+              // Start and stop arrive on different topics. A transaction ID
+              // is terminal after stop, even if its old start is delivered later.
+              // This state lasts only for this active subscription.
+              if (delta.delta.kind === 'transactions-active') {
+                if (delta.delta.op === 'remove' && delta.delta.transaction_id !== undefined)
+                  sub.stoppedTransactions.add(delta.delta.transaction_id);
+                if (
+                  delta.delta.op === 'upsert' &&
+                  delta.delta.row &&
+                  sub.stoppedTransactions.has(delta.delta.row.transaction_id)
+                )
+                  continue;
+              }
+              if (
+                (delta.delta.kind === 'charge-point' || delta.delta.kind === 'charge-points') &&
+                delta.delta.row
+              ) {
+                let row = delta.delta.row;
+                for (const statusEvent of sub.pendingStatus.get(row.cp_id) ?? [])
+                  row = mergeConnectorFromStatusEvent(row, statusEvent);
+                delta = { ...delta, delta: { ...delta.delta, row } };
+              }
+              sub.snapshot = applySubscriptionDelta(sub.snapshot, delta.delta) ?? sub.snapshot;
+              if (delta.delta.kind === 'charge-point' && sub.snapshot.kind === 'charge-point') {
+                delta = { ...delta, delta: { ...delta.delta, row: sub.snapshot.row } };
+              } else if (
+                delta.delta.kind === 'charge-points' &&
+                delta.delta.row &&
+                sub.snapshot.kind === 'charge-points'
+              ) {
+                const incoming = delta.delta.row;
+                delta = {
+                  ...delta,
+                  delta: {
+                    ...delta.delta,
+                    row: sub.snapshot.rows.find((row) => row.cp_id === incoming.cp_id) ?? incoming,
+                  },
+                };
+              }
               try {
                 conn.deliver(sub.id, delta);
               } catch (err) {
                 this.log.warn({ err, connectionId: conn.connectionId }, 'broker.deliver_failed');
               }
             }
+            if (key) sub.pendingStatus.delete(key);
           })
           .catch((err: unknown) => {
+            if (!current() || (key && sequence < (sub.applied.get(key) ?? 0))) return;
+            if (key) sub.applied.set(key, sequence);
+            if (key) sub.pendingStatus.delete(key);
             this.log.warn(
               {
-                err,
+                errorClass: err instanceof Error ? err.name : 'unknown',
                 connectionId: conn.connectionId,
                 subscriptionId: sub.id,
                 topic: event.topic,
               },
               'broker.resolver_failed',
             );
+            try {
+              conn.deliver(sub.id, {
+                cursor: event.cursor,
+                error: 'Gateway refresh failed. Showing last known data.',
+              });
+            } catch {
+              this.log.warn({ connectionId: conn.connectionId }, 'broker.deliver_failed');
+            }
           });
       }
     }

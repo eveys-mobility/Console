@@ -72,6 +72,7 @@ export const rpcResultMessage = baseServer.extend({
 export const errorMessage = baseServer.extend({
   type: z.literal('error'),
   inReplyTo: z.string().optional(),
+  subscriptionId: z.string().optional(),
   error: errorPayload,
 });
 
