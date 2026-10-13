@@ -58,6 +58,10 @@ services:
       PORT: 8090
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: 'false'
+      # These stores otherwise default to /app/data, outside the named volume.
+      # Copy existing /app/data state before recreating a deployed server.
+      DIAGNOSTICS_DATA_DIR: /data
+      EVENT_LOG_DIR: /data/event-log
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env or the host env}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-eveys-console}
       JWT_ISSUER: ${JWT_ISSUER:-eveys-console}
