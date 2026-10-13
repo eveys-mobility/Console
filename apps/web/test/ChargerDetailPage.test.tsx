@@ -184,6 +184,26 @@ describe('ChargerDetailPage — Commands tab', () => {
 });
 
 describe('ChargerDetailPage — data availability and connector identity', () => {
+  it('does not present a pre-boot controller report as current Available', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          connectors: [
+            {
+              connector_id: 0,
+              status: 'Available',
+              error_code: 'NoError',
+              last_changed_at: '2026-05-10T09:59:00Z',
+            },
+          ],
+        }),
+      },
+    };
+    renderPage();
+    expect(screen.getByText('controller: Unknown')).toBeInTheDocument();
+    expect(screen.queryByText('controller: Available')).toBeNull();
+  });
   it('describes connector zero faults as a controller fault', () => {
     nextSubResult = {
       snapshot: {

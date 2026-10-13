@@ -1,6 +1,9 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { withConnectorFreshness } from '@eveys-console/protocol';
 import type { ChargePointSummary } from '@eveys-console/protocol';
+import { chargePointFaultLevel, faultedConnectors } from '@/lib/fault';
+import { computeAlerts } from '@/lib/alerts';
 import { ConnectorDataNotice, physicalConnectors } from '@/components/ConnectorDataNotice';
 import { canRemoteStart, canRemoteStop } from '@/lib/charger-state';
 
@@ -45,5 +48,21 @@ describe('stale connector presentation and controls', () => {
   });
   it('does not enable Start using connector zero or stale Available', () => {
     expect(canRemoteStart(cp('Available')).enabled).toBe(false);
+  });
+  it('does not present a stale Faulted report as a current fault', () => {
+    expect(chargePointFaultLevel(withConnectorFreshness(cp('Faulted')))).toBe('ok');
+  });
+  it('keeps stale fault evidence out of the current fault banner', () => {
+    expect(faultedConnectors(withConnectorFreshness(cp('Faulted')))).toEqual([]);
+  });
+  it('does not derive a current charger fault alert from stale evidence', () => {
+    expect(
+      computeAlerts({ charge_points: [withConnectorFreshness(cp('Faulted'))], sys_status: null }),
+    ).toEqual([]);
+  });
+  it('does not derive a current advisory alert from unknown evidence', () => {
+    const row = withConnectorFreshness(cp());
+    row.connectors[1]!.error_code = 'OverCurrentFailure';
+    expect(computeAlerts({ charge_points: [row], sys_status: null })).toEqual([]);
   });
 });

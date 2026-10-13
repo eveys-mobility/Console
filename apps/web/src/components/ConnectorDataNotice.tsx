@@ -3,19 +3,25 @@ import type { ChargePointSummary } from '@eveys-console/protocol';
 
 import { TimeAgo } from '@/components/TimeAgo';
 
+function displayedConnectors(cp: ChargePointSummary) {
+  return withConnectorFreshness(cp).connectors.map((connector) =>
+    connector.status_freshness === 'current'
+      ? connector
+      : { ...connector, reported_status: connector.status, status: 'Unknown' },
+  );
+}
+
 export function physicalConnectors(cp: ChargePointSummary) {
-  return withConnectorFreshness(cp)
-    .connectors.filter((connector) => connector.connector_id > 0)
-    .map((connector) =>
-      connector.status_freshness === 'current'
-        ? connector
-        : { ...connector, reported_status: connector.status, status: 'Unknown' },
-    );
+  return displayedConnectors(cp).filter((connector) => connector.connector_id > 0);
+}
+
+export function controllerConnector(cp: ChargePointSummary) {
+  return displayedConnectors(cp).find((connector) => connector.connector_id === 0);
 }
 
 export function ConnectorDataNotice({ cp }: { cp: ChargePointSummary }) {
   const stale = withConnectorFreshness(cp).connectors.filter(
-    (connector) => connector.connector_id > 0 && connector.status_freshness !== 'current',
+    (connector) => connector.status_freshness !== 'current',
   );
   if (cp.connectors_state !== 'unavailable' && stale.length === 0) return null;
   return (

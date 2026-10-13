@@ -5,7 +5,11 @@ import { useMemo } from 'react';
 import { mergeChargePoint, type ChargePointSummary } from '@eveys-console/protocol';
 
 import { ChargerSpecChips } from '@/components/ChargerSpecChips';
-import { ConnectorDataNotice, physicalConnectors } from '@/components/ConnectorDataNotice';
+import {
+  ConnectorDataNotice,
+  controllerConnector,
+  physicalConnectors,
+} from '@/components/ConnectorDataNotice';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Uptime } from '@/components/Uptime';
 import { UptimeChip } from '@/components/UptimeChip';
@@ -249,6 +253,7 @@ function FaultBanner({ cp }: { cp: ChargePointSummary }) {
 }
 
 function Header({ cp }: { cp: ChargePointSummary }) {
+  const controller = controllerConnector(cp);
   // Title row with metadata under it, status badges below the title
   // — wraps cleanly at any width without the right edge competing
   // with the title.
@@ -278,13 +283,17 @@ function Header({ cp }: { cp: ChargePointSummary }) {
         <Badge variant="secondary" className="font-mono text-xs">
           last_status: {cp.last_status ?? '—'}
         </Badge>
-        {cp.connectors.find((connector) => connector.connector_id === 0) ? (
+        {controller ? (
           <Badge
             variant="secondary"
             className="font-mono text-xs"
-            title="Connector 0 reports the charge point controller"
+            title={
+              controller.status === 'Unknown'
+                ? `Current controller status is unknown; last reported ${controller.reported_status}`
+                : 'Connector 0 reports the charge point controller'
+            }
           >
-            controller: {cp.connectors.find((connector) => connector.connector_id === 0)?.status}
+            controller: {controller.status}
           </Badge>
         ) : null}
         {cp.online && cp.last_boot_at ? (

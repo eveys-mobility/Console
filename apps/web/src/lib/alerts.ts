@@ -142,7 +142,12 @@ export function computeAlerts(input: ComputeAlertsInput): Alert[] {
   // ---- per-charger faults ---------------------------------------------
 
   for (const cp of cps) {
-    const faulted = cp.connectors.some((c) => c.status === 'Faulted');
+    const faulted = cp.connectors.some(
+      (c) =>
+        c.status_freshness !== 'stale' &&
+        c.status_freshness !== 'unknown' &&
+        c.status === 'Faulted',
+    );
     if (faulted) {
       alerts.push({
         id: `charger-faulted:${cp.cp_id}`,
@@ -180,6 +185,7 @@ export function computeAlerts(input: ComputeAlertsInput): Alert[] {
 
   for (const cp of cps) {
     for (const conn of cp.connectors) {
+      if (conn.status_freshness === 'stale' || conn.status_freshness === 'unknown') continue;
       if (!conn.error_code || conn.error_code === NO_ERROR) continue;
       // If the connector is also Faulted, the charger-faulted critical
       // already covers it — we don't want one connector producing both
