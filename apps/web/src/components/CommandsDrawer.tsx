@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/sheet';
 import { useToast } from '@/components/ui/toaster';
 import { useConsoleClient } from '@/lib/ws-context';
+import { describeCommandResponse } from '@/lib/command-outcome';
 
 interface CommandsDrawerProps {
   cpId: string;
@@ -50,8 +51,23 @@ export function CommandsDrawer({ cpId, trigger }: CommandsDrawerProps) {
     setBusy(method);
     try {
       const result = await client.rpc(method, { cp_id: cpId, ...params });
-      onResult?.(result);
-      toast({ title: method, description: 'Command accepted by charger' });
+      const reply = describeCommandResponse(method, result);
+      if (reply.outcome === 'accepted') {
+        onResult?.(result);
+        toast({
+          title: method,
+          description: `${reply.status}. Request acknowledged; check device state for completion.`,
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: method,
+          description:
+            reply.outcome === 'unknown'
+              ? 'Command result unknown. Check device state before retrying.'
+              : reply.status,
+        });
+      }
     } catch (err) {
       toast({
         variant: 'destructive',

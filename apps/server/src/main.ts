@@ -172,7 +172,7 @@ async function main() {
   // healthchecks already need to know the deployment's URL shape.
   await app.register(
     async (api) => {
-      await registerHealthRoutes(api);
+      await registerHealthRoutes(api, { kafka, gateway });
       await registerMetricsRoute(api);
       await registerAuthRoutes(api, { pow, users });
       await registerSysStatusRoute(api, { broker, gateway, kafka, startedAt });

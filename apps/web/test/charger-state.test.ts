@@ -16,7 +16,7 @@ const conn = (over: Partial<Connector> = {}): Connector => ({
   connector_id: 1,
   status: 'Available',
   error_code: 'NoError',
-  last_changed_at: null,
+  last_changed_at: '2026-10-13T09:13:00Z',
   ...over,
 });
 
@@ -31,7 +31,7 @@ const cp = (
     model: 'X1',
     firmware_version: '1.0.0',
     serial_number: 'SN1',
-    last_boot_at: null,
+    last_boot_at: '2026-10-13T09:12:44Z',
     last_heartbeat_at: null,
     last_status: 'Available',
     connectors: [conn()],

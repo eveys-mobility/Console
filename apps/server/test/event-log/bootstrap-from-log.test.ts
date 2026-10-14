@@ -54,6 +54,36 @@ function statusEvent(iso: string, cpId = 'CP_A'): KafkaEvent {
 }
 
 describe('device-events bootstrap from log', () => {
+  it('marks a failed archive read unavailable without preventing live subscription', async () => {
+    // A file where the CP directory belongs yields a real ENOTDIR read failure.
+    await fs.writeFile(path.join(root, 'CP_BROKEN'), 'not a directory');
+    configureEventLogReader({ root, bootstrapLimit: 10 });
+    const resolver = resolveQuery('device-events');
+    const snap = await resolver.snapshot({ cp_id: 'CP_BROKEN' }, gateway);
+    expect(snap.snapshot).toMatchObject({
+      kind: 'device-events',
+      rows: [],
+      history_state: 'unavailable',
+      history_error: 'read_failed',
+    });
+    expect(
+      await resolver.deltasFromEvent(
+        { cp_id: 'CP_BROKEN' },
+        statusEvent('2026-10-13T07:00:00Z', 'CP_BROKEN'),
+        gateway,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('marks disabled history unconfigured rather than claiming an empty archive', async () => {
+    resetEventLogReader();
+    expect(
+      (await resolveQuery('device-events').snapshot({ cp_id: 'CP_A' }, gateway)).snapshot,
+    ).toMatchObject({
+      history_state: 'unconfigured',
+      history_error: null,
+    });
+  });
   it('returns up to bootstrapLimit recent events for the requested cp_id', async () => {
     for (let i = 0; i < 5; i++) {
       const sec = String(i).padStart(2, '0');
@@ -78,6 +108,7 @@ describe('device-events bootstrap from log', () => {
     const snap = await resolver.snapshot({ cp_id: 'CP_NEW' }, gateway);
     if (snap.snapshot.kind === 'device-events') {
       expect(snap.snapshot.rows).toEqual([]);
+      expect(snap.snapshot).toMatchObject({ history_state: 'available', history_error: null });
     }
   });
 

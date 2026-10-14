@@ -28,7 +28,7 @@ function gatewayPill(s: SysStatus): Pill {
     return {
       key: 'gateway',
       label: 'Gateway',
-      tone: 'destructive',
+      tone: g.detail === 'status=degraded' ? 'warning' : 'destructive',
       hint: g.detail ?? 'gateway probe failed',
     };
   }
@@ -40,12 +40,22 @@ function componentPills(s: SysStatus): Pill[] {
   const out: Pill[] = [];
   const comps = s.gateway.components ?? {};
   for (const [name, status] of Object.entries(comps)) {
+    if (name.endsWith('_error_class') || typeof status !== 'string') continue;
     const ok = status === 'ok';
     out.push({
       key: `gw-${name}`,
       label: prettyComponentName(name),
-      tone: ok ? 'success' : 'destructive',
-      hint: ok ? 'ok' : status,
+      tone: ok
+        ? 'success'
+        : status === 'unconfigured' || status === 'unknown'
+          ? 'warning'
+          : 'destructive',
+      hint:
+        name === 'ingestor' && status === 'unknown'
+          ? 'unknown — ingestion progress is not observed'
+          : ok
+            ? 'ok'
+            : status,
     });
   }
   return out;
@@ -73,6 +83,7 @@ function kafkaPill(s: SysStatus): Pill {
 }
 
 function prettyComponentName(name: string): string {
+  if (name === 'clickhouse') return 'ClickHouse';
   // The gateway emits component keys in lowercase ("postgres", "redis").
   // Capitalising matches how the rest of the row reads ("Console",
   // "Gateway", "Kafka"). No other transformation needed.

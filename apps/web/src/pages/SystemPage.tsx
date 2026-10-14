@@ -175,14 +175,14 @@ export function SystemPage() {
         />
         <MetricTile
           testId="metric-sessions"
-          label="Active sessions"
+          label="Open transactions"
           value={activeSessions === null ? '…' : String(activeSessions)}
           hint={
             activeSessions === null
               ? 'loading…'
               : activeSessions === 1
-                ? '1 charger charging'
-                : `${activeSessions} chargers charging`
+                ? '1 open transaction record'
+                : `${activeSessions} open transaction records`
           }
           tone={activeSessions !== null && activeSessions > 0 ? 'success' : 'default'}
           to="/inspect/transactions"

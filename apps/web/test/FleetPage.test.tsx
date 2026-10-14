@@ -156,7 +156,12 @@ const baseRow = (
   last_heartbeat_at: '2026-05-09T11:00:00+00:00',
   last_status: 'Available',
   connectors: [
-    { connector_id: 1, status: 'Available', error_code: 'NoError', last_changed_at: null },
+    {
+      connector_id: 1,
+      status: 'Available',
+      error_code: 'NoError',
+      last_changed_at: '2026-05-09T11:00:00Z',
+    },
   ],
   ...overrides,
 });
@@ -382,7 +387,7 @@ describe('FleetPage — client-side filters', () => {
                 connector_id: 1,
                 status: 'Faulted',
                 error_code: 'GroundFailure',
-                last_changed_at: null,
+                last_changed_at: '2026-05-09T11:00:00Z',
               },
             ],
           }),
@@ -393,7 +398,7 @@ describe('FleetPage — client-side filters', () => {
                 connector_id: 1,
                 status: 'Available',
                 error_code: 'WeakSignal',
-                last_changed_at: null,
+                last_changed_at: '2026-05-09T11:00:00Z',
               },
             ],
           }),
@@ -616,7 +621,12 @@ describe('FleetPage — delta application', () => {
           baseRow('CP_A', {
             last_status: 'Available',
             connectors: [
-              { connector_id: 1, status: 'Faulted', error_code: 'NoError', last_changed_at: null },
+              {
+                connector_id: 1,
+                status: 'Faulted',
+                error_code: 'NoError',
+                last_changed_at: '2026-05-09T11:00:00Z',
+              },
             ],
           }),
         ],
@@ -628,7 +638,12 @@ describe('FleetPage — delta application', () => {
         row: baseRow('CP_A', {
           last_status: 'Charging',
           connectors: [
-            { connector_id: 1, status: 'Faulted', error_code: 'NoError', last_changed_at: null },
+            {
+              connector_id: 1,
+              status: 'Faulted',
+              error_code: 'NoError',
+              last_changed_at: '2026-05-09T11:00:00Z',
+            },
           ],
         }),
       },
@@ -683,12 +698,17 @@ describe('FleetPage — table-row connector drill-down', () => {
         rows: [
           baseRow('CP_A', {
             connectors: [
-              { connector_id: 1, status: 'Charging', error_code: 'NoError', last_changed_at: null },
+              {
+                connector_id: 1,
+                status: 'Charging',
+                error_code: 'NoError',
+                last_changed_at: '2026-05-09T11:00:00Z',
+              },
               {
                 connector_id: 2,
                 status: 'Faulted',
                 error_code: 'GroundFailure',
-                last_changed_at: null,
+                last_changed_at: '2026-05-09T11:00:00Z',
               },
             ],
           }),
@@ -733,7 +753,7 @@ describe('FleetPage — ?faults=1 URL param', () => {
             connector_id: 1,
             status: 'Faulted',
             error_code: 'GroundFailure',
-            last_changed_at: null,
+            last_changed_at: '2026-05-09T11:00:00Z',
           },
         ],
       }),

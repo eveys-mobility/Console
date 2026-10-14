@@ -2,9 +2,14 @@ import { useParams } from '@tanstack/react-router';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
 
-import type { ChargePointSummary } from '@eveys-console/protocol';
+import { mergeChargePoint, type ChargePointSummary } from '@eveys-console/protocol';
 
 import { ChargerSpecChips } from '@/components/ChargerSpecChips';
+import {
+  ConnectorDataNotice,
+  controllerConnector,
+  physicalConnectors,
+} from '@/components/ConnectorDataNotice';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Uptime } from '@/components/Uptime';
 import { UptimeChip } from '@/components/UptimeChip';
@@ -40,7 +45,25 @@ export function ChargerDetailPage() {
   const isPhone = useIsBelow('sm');
   const sub = useSubscription('charge-point', { cp_id: cpId });
 
-  if (sub.error) {
+  // Merge the most recent delta into the rendered row so a
+  // BootNotification or StatusNotification visibly updates the page
+  // without waiting for the next snapshot refresh. The resolver
+  // re-fetches the full row from the gateway on each `cp.boot` /
+  // `cp.status` event (see apps/server/src/broker/queries.ts).
+  const cp = useMemo<ChargePointSummary | null>(() => {
+    if (!sub.snapshot || sub.snapshot.kind !== 'charge-point' || sub.snapshot.row.cp_id !== cpId)
+      return null;
+    if (
+      sub.lastDelta &&
+      sub.lastDelta.kind === 'charge-point' &&
+      sub.lastDelta.row.cp_id === cpId
+    ) {
+      return mergeChargePoint(sub.snapshot.row, sub.lastDelta.row);
+    }
+    return sub.snapshot.row;
+  }, [sub.snapshot, sub.lastDelta, cpId]);
+
+  if (sub.error && !cp) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Couldn't load {cpId}</AlertTitle>
@@ -48,18 +71,6 @@ export function ChargerDetailPage() {
       </Alert>
     );
   }
-  // Merge the most recent delta into the rendered row so a
-  // BootNotification or StatusNotification visibly updates the page
-  // without waiting for the next snapshot refresh. The resolver
-  // re-fetches the full row from the gateway on each `cp.boot` /
-  // `cp.status` event (see apps/server/src/broker/queries.ts).
-  const cp = useMemo<ChargePointSummary | null>(() => {
-    if (!sub.snapshot || sub.snapshot.kind !== 'charge-point') return null;
-    if (sub.lastDelta && sub.lastDelta.kind === 'charge-point') {
-      return sub.lastDelta.row;
-    }
-    return sub.snapshot.row;
-  }, [sub.snapshot, sub.lastDelta]);
 
   if (sub.loading || !cp) {
     return (
@@ -72,7 +83,14 @@ export function ChargerDetailPage() {
 
   return (
     <div className="space-y-4">
+      {sub.error ? (
+        <Alert>
+          <AlertTitle>Live data unavailable</AlertTitle>
+          <AlertDescription>{sub.error}</AlertDescription>
+        </Alert>
+      ) : null}
       <Header cp={cp} />
+      <ConnectorDataNotice cp={cp} />
 
       <FaultBanner cp={cp} />
 
@@ -84,7 +102,9 @@ export function ChargerDetailPage() {
           <TabsTrigger value="connectors" data-testid="detail-tab-connectors">
             Connectors
             <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-mono">
-              {cp.connectors.length}
+              {cp.connectors_state === 'unavailable' && physicalConnectors(cp).length === 0
+                ? '—'
+                : physicalConnectors(cp).length}
             </span>
           </TabsTrigger>
           <TabsTrigger value="events" data-testid="detail-tab-events">
@@ -117,10 +137,12 @@ export function ChargerDetailPage() {
               <CardTitle>Connectors</CardTitle>
             </CardHeader>
             <CardContent className={isPhone ? 'p-0' : undefined}>
-              {isPhone ? (
-                <ConnectorCards connectors={cp.connectors} />
+              {cp.connectors_state === 'unavailable' && physicalConnectors(cp).length === 0 ? (
+                <ConnectorDataNotice cp={cp} />
+              ) : isPhone ? (
+                <ConnectorCards connectors={physicalConnectors(cp)} />
               ) : (
-                <ConnectorTable connectors={cp.connectors} />
+                <ConnectorTable connectors={physicalConnectors(cp)} />
               )}
             </CardContent>
           </Card>
@@ -169,13 +191,19 @@ function FaultBanner({ cp }: { cp: ChargePointSummary }) {
   if (connectors.length === 0) return null;
   const overall = chargePointFaultLevel(cp);
   const variant = overall === 'fault' ? 'destructive' : 'default';
+  const physicalCount = connectors.filter((connector) => connector.connector_id > 0).length;
+  const hasController = connectors.some((connector) => connector.connector_id === 0);
+  const affected =
+    physicalCount > 0
+      ? `${physicalCount} connector${physicalCount === 1 ? '' : 's'}${hasController ? ' and controller' : ''}`
+      : 'controller';
   return (
     <Alert variant={variant}>
       <AlertTriangle className="h-4 w-4" />
       <AlertTitle>
         {overall === 'fault'
-          ? `Faulted — ${connectors.length} connector${connectors.length === 1 ? '' : 's'}`
-          : `Advisory — ${connectors.length} connector${connectors.length === 1 ? '' : 's'} reporting an error`}
+          ? `Faulted — ${affected}`
+          : `Advisory — ${affected} reporting an error`}
       </AlertTitle>
       <AlertDescription className="space-y-3">
         {connectors.map((c) => {
@@ -225,6 +253,7 @@ function FaultBanner({ cp }: { cp: ChargePointSummary }) {
 }
 
 function Header({ cp }: { cp: ChargePointSummary }) {
+  const controller = controllerConnector(cp);
   // Title row with metadata under it, status badges below the title
   // — wraps cleanly at any width without the right edge competing
   // with the title.
@@ -254,6 +283,19 @@ function Header({ cp }: { cp: ChargePointSummary }) {
         <Badge variant="secondary" className="font-mono text-xs">
           last_status: {cp.last_status ?? '—'}
         </Badge>
+        {controller ? (
+          <Badge
+            variant="secondary"
+            className="font-mono text-xs"
+            title={
+              controller.status === 'Unknown'
+                ? `Current controller status is unknown; last reported ${controller.reported_status}`
+                : 'Connector 0 reports the charge point controller'
+            }
+          >
+            controller: {controller.status}
+          </Badge>
+        ) : null}
         {cp.online && cp.last_boot_at ? (
           <Badge
             variant="secondary"

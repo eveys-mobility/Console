@@ -23,6 +23,8 @@ export type FaultLevel = 'fault' | 'advisory' | 'ok';
 type Connector = ChargePointSummary['connectors'][number];
 
 export function connectorFaultLevel(c: Connector): FaultLevel {
+  // Retained reports remain visible in the data notice, not as current faults.
+  if (c.status_freshness === 'stale' || c.status_freshness === 'unknown') return 'ok';
   if (c.status === 'Faulted') return 'fault';
   if (c.error_code && c.error_code !== NO_ERROR) return 'advisory';
   return 'ok';

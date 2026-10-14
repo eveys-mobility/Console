@@ -17,7 +17,11 @@ export class GatewayClient {
   private async json<T>(
     op: GatewayOp,
     path: string,
-    init?: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'; body?: unknown },
+    init?: {
+      method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+      body?: unknown;
+      signal?: AbortSignal;
+    },
   ): Promise<T> {
     const url = `${this.cfg.GATEWAY_BASE_URL}${path}`;
     const headers: Record<string, string> = {
@@ -29,6 +33,7 @@ export class GatewayClient {
     const start = Date.now();
     const method = init?.method ?? 'GET';
     const reqOpts: Parameters<typeof request>[1] = { method, headers };
+    if (init?.signal) reqOpts.signal = init.signal;
     if (init?.body !== undefined) reqOpts.body = JSON.stringify(init.body);
     // `op` is a closed enum (see GatewayOp) so the {op,status} label
     // cartesian stays bounded; URL paths never become labels.
@@ -49,8 +54,8 @@ export class GatewayClient {
     }
   }
 
-  health() {
-    return this.json<unknown>('health', '/api/v1/health');
+  health(signal?: AbortSignal) {
+    return this.json<unknown>('health', '/api/v1/health', signal ? { signal } : undefined);
   }
 
   sysConfig() {

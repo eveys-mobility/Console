@@ -23,6 +23,11 @@ export const connectorState = z
     status: z.string(),
     error_code: z.string().nullable(),
     last_changed_at: isoTimestamp.nullable(),
+    status_freshness: z.enum(['current', 'stale', 'unknown']).optional(),
+    stale_reason: z
+      .enum(['before_boot', 'stopped_after_status', 'unverified_timestamp'])
+      .nullable()
+      .optional(),
     /** Vendor-specific error code (OCPP 1.6 StatusNotification). */
     vendor_error_code: z.string().nullable().optional(),
     /** Free-text human-readable detail line on the StatusNotification. */
@@ -83,6 +88,10 @@ export const chargePointSummary = z
     last_diagnostics_status: z.string().nullable().optional(),
     last_firmware_status: z.string().nullable().optional(),
     connectors: z.array(connectorState),
+    connectors_state: z.enum(['available', 'unavailable']).optional(),
+    connectors_source: z.literal('clickhouse').optional(),
+    connectors_error: z.enum(['query_failed', 'not_configured']).nullable().optional(),
+    connectors_last_successful_at: isoTimestamp.nullable().optional(),
     /** Currently-Active reservations on this charger, inlined by the
      *  gateway's detail endpoint so the Commands tab can populate
      *  the CancelReservation dropdown without a second round-trip.
@@ -186,7 +195,13 @@ export const snapshotForQuery = z.union([
   z.object({ kind: z.literal('transactions-active'), rows: z.array(transactionSummary) }),
   z.object({ kind: z.literal('meter-history'), rows: z.array(meterSample) }),
   z.object({ kind: z.literal('status-history'), rows: z.array(statusEvent) }),
-  z.object({ kind: z.literal('device-events'), rows: z.array(deviceEvent) }),
+  z.object({
+    kind: z.literal('device-events'),
+    rows: z.array(deviceEvent),
+    // This reports the local log read only, not archive completeness.
+    history_state: z.enum(['available', 'unavailable', 'unconfigured']).optional(),
+    history_error: z.literal('read_failed').nullable().optional(),
+  }),
 ]);
 export type SnapshotForQuery = z.infer<typeof snapshotForQuery>;
 

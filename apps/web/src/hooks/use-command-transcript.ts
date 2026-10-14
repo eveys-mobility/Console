@@ -21,6 +21,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 import type { ConsoleClient } from '@/api/ws-client';
+import { describeCommandResponse } from '@/lib/command-outcome';
 
 const RING_CAP = 200;
 
@@ -35,6 +36,7 @@ export type TranscriptOutcome =
   | 'rejected'
   | 'soft-reject' // Occupied / Unavailable / Faulted / NotImplemented / NotSupported / Failed
   | 'pending'
+  | 'unknown'
   | 'error';
 
 export interface TranscriptEntry {
@@ -229,9 +231,9 @@ export function useCommandTranscript(
       try {
         const response = await client.rpc(method, request);
         const elapsedMs = Math.round(performance.now() - startMs);
-        const { status, outcome } = describeResponse(response);
+        const { status, outcome } = describeCommandResponse(method, response);
         store.complete(id, method, { phase: 'ok', response, status, outcome, elapsedMs });
-        onResult?.(response);
+        if (outcome === 'accepted') onResult?.(response);
       } catch (err) {
         const elapsedMs = Math.round(performance.now() - startMs);
         const message = err instanceof Error ? err.message : 'rpc failed';
@@ -261,30 +263,4 @@ export function useCommandTranscript(
     pause,
     resume,
   };
-}
-
-/** Map a charger response (shape varies per command) to a short
- *  human-readable status + coarse outcome bucket. Falls back to
- *  "OK" / accepted for shapes we don't recognise (e.g. Unlock's
- *  Unlocked, GetConfiguration's keys list). The full response is
- *  always available on the entry; this is just the colour cue. */
-function describeResponse(response: unknown): { status: string; outcome: TranscriptOutcome } {
-  if (response == null || typeof response !== 'object') {
-    return { status: 'OK', outcome: 'accepted' };
-  }
-  const r = response as Record<string, unknown>;
-  const raw = r.status;
-  if (typeof raw !== 'string') {
-    return { status: 'OK', outcome: 'accepted' };
-  }
-  const lower = raw.toLowerCase();
-  if (lower === 'accepted' || lower === 'unlocked') {
-    return { status: raw, outcome: 'accepted' };
-  }
-  if (lower === 'rejected' || lower === 'unknowntransaction') {
-    return { status: raw, outcome: 'rejected' };
-  }
-  // Occupied / Unavailable / Faulted / NotImplemented / NotSupported / Failed
-  // — soft-rejects that mean "the charger said no, but not a hard error".
-  return { status: raw, outcome: 'soft-reject' };
 }
