@@ -19,6 +19,29 @@ components:
           - type: string
           - type: 'null'
           title: Firmware Version
+        last_boot_decided_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: ISO-8601 UTC time the gateway answered that BootNotification.
+          title: Last Boot Decided At
+        last_boot_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Who decided `last_boot_status` and why. `backend_pending` — the
+            TOGER backend answered Pending (no device registered with this `charge_point_id`;
+            authorizing in the Console does not help). `backend_rejected`, `backend_unavailable`,
+            `backend_error`, `backend_unknown_status`, `backend_accepted`, `local_accepted`.
+          title: Last Boot Reason
+        last_boot_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'OCPP RegistrationStatus the gateway answered on the most recent
+            BootNotification: `Accepted` / `Pending` / `Rejected`. A charger whose last boot
+            was not `Accepted` never sends StatusNotification, so `connectors[]` stays empty.'
+          title: Last Boot Status
         last_heartbeat_at:
           anyOf:
           - type: string
@@ -112,6 +135,29 @@ components:
           - type: string
           - type: 'null'
           title: Firmware Version
+        last_boot_decided_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: ISO-8601 UTC time the gateway answered that BootNotification.
+          title: Last Boot Decided At
+        last_boot_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Who decided `last_boot_status` and why. `backend_pending` — the
+            TOGER backend answered Pending (no device registered with this `charge_point_id`;
+            authorizing in the Console does not help). `backend_rejected`, `backend_unavailable`,
+            `backend_error`, `backend_unknown_status`, `backend_accepted`, `local_accepted`.
+          title: Last Boot Reason
+        last_boot_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'OCPP RegistrationStatus the gateway answered on the most recent
+            BootNotification: `Accepted` / `Pending` / `Rejected`. A charger whose last boot
+            was not `Accepted` never sends StatusNotification, so `connectors[]` stays empty.'
+          title: Last Boot Status
         last_heartbeat_at:
           anyOf:
           - type: string

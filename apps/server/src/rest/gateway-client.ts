@@ -107,6 +107,7 @@ export class GatewayClient {
       vendor?: string;
       ocpp_version?: string;
       last_status?: string;
+      last_boot_status?: string;
       cp_id_prefix?: string;
       cp_id_contains?: string;
       limit?: number;
@@ -120,6 +121,7 @@ export class GatewayClient {
     if (params.vendor) qs.set('vendor', params.vendor);
     if (params.ocpp_version) qs.set('ocpp_version', params.ocpp_version);
     if (params.last_status) qs.set('last_status', params.last_status);
+    if (params.last_boot_status) qs.set('last_boot_status', params.last_boot_status);
     if (params.cp_id_prefix) qs.set('cp_id_prefix', params.cp_id_prefix);
     if (params.cp_id_contains) qs.set('cp_id_contains', params.cp_id_contains);
     if (params.limit) qs.set('limit', String(params.limit));

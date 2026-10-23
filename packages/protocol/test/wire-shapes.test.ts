@@ -86,3 +86,43 @@ describe('wire shapes — parse live gateway responses', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('wire shapes — last boot decision (gateway migration 0021)', () => {
+  const PENDING_ROW = {
+    ...REAL_CHARGE_POINT_ROW,
+    cp_id: 'SN20052210130151',
+    online: true,
+    connectors: [],
+    last_boot_status: 'Pending',
+    last_boot_reason: 'backend_pending',
+    last_boot_decided_at: '2026-10-22T17:01:00.000000+00:00',
+  };
+
+  it('chargePointSummary exposes last_boot_status / reason / decided_at as typed fields', () => {
+    const result = chargePointSummary.safeParse(PENDING_ROW);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Typed access — compiles only once the schema declares the fields.
+    const status: string | null | undefined = result.data.last_boot_status;
+    const reason: string | null | undefined = result.data.last_boot_reason;
+    const decidedAt: string | null | undefined = result.data.last_boot_decided_at;
+    expect(status).toBe('Pending');
+    expect(reason).toBe('backend_pending');
+    expect(decidedAt).toBe('2026-10-22T17:01:00.000000+00:00');
+  });
+
+  it('chargePointSummary accepts null decision fields (row never booted since 0021)', () => {
+    const row = {
+      ...REAL_CHARGE_POINT_ROW,
+      last_boot_status: null,
+      last_boot_reason: null,
+      last_boot_decided_at: null,
+    };
+    expect(chargePointSummary.safeParse(row).success).toBe(true);
+  });
+
+  it('chargePointSummary rejects a non-ISO last_boot_decided_at', () => {
+    const row = { ...PENDING_ROW, last_boot_decided_at: 'yesterday' };
+    expect(chargePointSummary.safeParse(row).success).toBe(false);
+  });
+});

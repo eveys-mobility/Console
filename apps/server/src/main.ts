@@ -54,6 +54,7 @@ import { registerSysCpUptimeRoute } from './routes/sys-cp-uptime.js';
 import { registerSysFleetStatusHistoryRoute } from './routes/sys-fleet-status-history.js';
 import { registerSysCpEventsRoute } from './routes/sys-cp-events.js';
 import { registerSysAuthorizationsRoute } from './routes/sys-authorizations.js';
+import { registerSysChargePointsRoute } from './routes/sys-charge-points.js';
 import { registerSysCpReservationsRoute } from './routes/sys-cp-reservations.js';
 import { registerSysConfigRoute } from './routes/sys-config.js';
 import { registerSysConsoleAdminConfigRoute } from './routes/sys-console-admin-config.js';
@@ -181,6 +182,7 @@ async function main() {
       await registerSysGatewayConfigRoute(api, { gateway });
       await registerSysGatewayAdminConfigRoute(api, { gateway });
       await registerSysAuthorizationsRoute(api, { gateway });
+      await registerSysChargePointsRoute(api, { gateway });
       await registerSysRestartRoute(api, { config, gateway });
       await registerSysKpisRoute(api, { gateway });
       await registerSysChargePointTransactionsRoute(api, { gateway });
