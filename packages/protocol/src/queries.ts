@@ -87,6 +87,20 @@ export const chargePointSummary = z
     last_status: z.string().nullable(),
     last_diagnostics_status: z.string().nullable().optional(),
     last_firmware_status: z.string().nullable().optional(),
+    /** How the gateway answered the charger's most recent
+     *  BootNotification (`Accepted` / `Pending` / `Rejected`) and who
+     *  decided (`backend_pending`, `backend_rejected`,
+     *  `backend_unavailable`, `backend_error`, `backend_unknown_status`,
+     *  `backend_accepted`, `local_accepted`). A non-Accepted boot means
+     *  the charger never sends StatusNotification, so `connectors` stays
+     *  empty — the UI shows the reason instead of a dead-looking row.
+     *  Null / absent on rows that haven't booted since the gateway
+     *  started recording the decision (gateway migration 0021). The
+     *  gateway's operator-authorization queue is a different gate and
+     *  is never reflected here. */
+    last_boot_status: z.string().nullable().optional(),
+    last_boot_reason: z.string().nullable().optional(),
+    last_boot_decided_at: isoTimestamp.nullable().optional(),
     connectors: z.array(connectorState),
     connectors_state: z.enum(['available', 'unavailable']).optional(),
     connectors_source: z.literal('clickhouse').optional(),

@@ -313,3 +313,74 @@ describe('ChargerDetailPage — OCPP version badge', () => {
     expect(screen.getByTestId('header-ocpp-version')).toHaveTextContent('OCPP 2.0.1');
   });
 });
+
+describe('ChargerDetailPage — last boot decision', () => {
+  it('shows a boot badge in the header when the backend answered Pending', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          last_boot_status: 'Pending',
+          last_boot_reason: 'backend_pending',
+          last_boot_decided_at: '2026-10-22T17:01:00+00:00',
+        }),
+      },
+    };
+    renderPage();
+    const badge = screen.getByTestId('header-boot-decision');
+    expect(badge).toHaveTextContent('boot: Pending');
+    expect(badge).toHaveAttribute('title', expect.stringMatching(/backend registration/i));
+    // The reason is spelled out on the page, not only on hover.
+    expect(screen.getByTestId('boot-decision-notice')).toHaveTextContent(
+      /not defined in the TOGER panel with charge_point_id/i,
+    );
+  });
+
+  it('omits the badge and notice when the boot was Accepted or not recorded', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({ last_boot_status: 'Accepted', last_boot_reason: 'backend_accepted' }),
+      },
+    };
+    renderPage();
+    expect(screen.queryByTestId('header-boot-decision')).toBeNull();
+    expect(screen.queryByTestId('boot-decision-notice')).toBeNull();
+    cleanup();
+    nextSubResult = { snapshot: { kind: 'charge-point', row: baseCp() } };
+    renderPage();
+    expect(screen.queryByTestId('header-boot-decision')).toBeNull();
+  });
+
+  it('adds a hint under "No connectors reported." when the boot is not Accepted', async () => {
+    const user = userEvent.setup();
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({
+          connectors: [],
+          last_boot_status: 'Pending',
+          last_boot_reason: 'backend_pending',
+        }),
+      },
+    };
+    renderPage();
+    await user.click(screen.getByTestId('detail-tab-connectors'));
+    expect(screen.getByText('No connectors reported.')).toBeInTheDocument();
+    expect(screen.getByTestId('connectors-boot-hint')).toHaveTextContent(/backend registration/i);
+  });
+
+  it('keeps the plain "No connectors reported." without a hint on an Accepted boot', async () => {
+    const user = userEvent.setup();
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-point',
+        row: baseCp({ connectors: [], last_boot_status: 'Accepted' }),
+      },
+    };
+    renderPage();
+    await user.click(screen.getByTestId('detail-tab-connectors'));
+    expect(screen.getByText('No connectors reported.')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectors-boot-hint')).toBeNull();
+  });
+});

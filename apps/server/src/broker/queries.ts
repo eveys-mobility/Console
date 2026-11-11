@@ -65,6 +65,7 @@ const chargePoints: QueryResolver = {
       vendor?: string;
       ocpp_version?: string;
       last_status?: string;
+      last_boot_status?: string;
       cp_id_prefix?: string;
       cp_id_contains?: string;
       limit?: number;
@@ -76,6 +77,9 @@ const chargePoints: QueryResolver = {
     if (typeof params.vendor === 'string') filter.vendor = params.vendor;
     if (typeof params.ocpp_version === 'string') filter.ocpp_version = params.ocpp_version;
     if (typeof params.last_status === 'string') filter.last_status = params.last_status;
+    if (typeof params.last_boot_status === 'string') {
+      filter.last_boot_status = params.last_boot_status;
+    }
     if (typeof params.cp_id_prefix === 'string') filter.cp_id_prefix = params.cp_id_prefix;
     if (typeof params.cp_id_contains === 'string') filter.cp_id_contains = params.cp_id_contains;
     if (typeof params.limit === 'number') filter.limit = params.limit;
@@ -169,6 +173,17 @@ const chargePoints: QueryResolver = {
       ];
     }
     if (typeof params.last_status === 'string' && row.last_status !== params.last_status) {
+      return [
+        {
+          cursor: event.cursor,
+          delta: { kind: 'charge-points', op: 'remove', cp_id: row.cp_id },
+        },
+      ];
+    }
+    if (
+      typeof params.last_boot_status === 'string' &&
+      (row.last_boot_status ?? null) !== params.last_boot_status
+    ) {
       return [
         {
           cursor: event.cursor,

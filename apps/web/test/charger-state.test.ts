@@ -147,3 +147,36 @@ describe('canReset', () => {
     expect(canReset(cp())).toEqual({ enabled: true });
   });
 });
+
+describe('canRemoteStart — boot decision gate', () => {
+  it('disabled when the last BootNotification was answered Pending by the backend', () => {
+    expect(
+      canRemoteStart(
+        cp({
+          last_boot_status: 'Pending',
+          last_boot_reason: 'backend_pending',
+          connectors: [conn({ status: 'Available' })],
+        }),
+      ),
+    ).toEqual({
+      enabled: false,
+      reason: expect.stringMatching(/backend registration/i),
+    });
+  });
+  it('disabled when the last boot was Rejected', () => {
+    expect(
+      canRemoteStart(cp({ last_boot_status: 'Rejected', last_boot_reason: 'backend_rejected' })),
+    ).toEqual({ enabled: false, reason: expect.stringMatching(/Rejected/) });
+  });
+  it('boot gate wins over the "no connectors" hint — it is the cause of the empty list', () => {
+    expect(
+      canRemoteStart(
+        cp({ last_boot_status: 'Pending', last_boot_reason: 'backend_pending', connectors: [] }),
+      ),
+    ).toEqual({ enabled: false, reason: expect.stringMatching(/backend registration/i) });
+  });
+  it('unchanged when the boot was Accepted or not recorded', () => {
+    expect(canRemoteStart(cp({ last_boot_status: 'Accepted' }))).toEqual({ enabled: true });
+    expect(canRemoteStart(cp({ last_boot_status: null }))).toEqual({ enabled: true });
+  });
+});

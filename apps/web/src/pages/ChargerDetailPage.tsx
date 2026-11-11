@@ -21,6 +21,7 @@ import { ReservationsPanel } from '@/components/ReservationsPanel';
 import { StatisticsCard } from '@/components/StatisticsCard';
 import { TransactionsHistory } from '@/components/TransactionsHistory';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { BootDecisionBadge, BootDecisionNotice } from '@/components/BootDecisionBadge';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -33,6 +34,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSubscription } from '@/hooks/use-subscription';
+import { describeBootDecision } from '@/lib/boot-decision';
 import { chargePointFaultLevel, connectorFaultLevel, faultedConnectors } from '@/lib/fault';
 import { describeErrorCode } from '@/lib/ocpp-errors';
 import { useIsBelow } from '@/lib/use-breakpoint';
@@ -90,6 +92,7 @@ export function ChargerDetailPage() {
         </Alert>
       ) : null}
       <Header cp={cp} />
+      <BootDecisionNotice cp={cp} />
       <ConnectorDataNotice cp={cp} />
 
       <FaultBanner cp={cp} />
@@ -140,9 +143,9 @@ export function ChargerDetailPage() {
               {cp.connectors_state === 'unavailable' && physicalConnectors(cp).length === 0 ? (
                 <ConnectorDataNotice cp={cp} />
               ) : isPhone ? (
-                <ConnectorCards connectors={physicalConnectors(cp)} />
+                <ConnectorCards connectors={physicalConnectors(cp)} hint={bootHint(cp)} />
               ) : (
-                <ConnectorTable connectors={physicalConnectors(cp)} />
+                <ConnectorTable connectors={physicalConnectors(cp)} hint={bootHint(cp)} />
               )}
             </CardContent>
           </Card>
@@ -283,6 +286,7 @@ function Header({ cp }: { cp: ChargePointSummary }) {
         <Badge variant="secondary" className="font-mono text-xs">
           last_status: {cp.last_status ?? '—'}
         </Badge>
+        <BootDecisionBadge cp={cp} data-testid="header-boot-decision" />
         {controller ? (
           <Badge
             variant="secondary"
@@ -315,9 +319,40 @@ function Header({ cp }: { cp: ChargePointSummary }) {
   );
 }
 
-function ConnectorTable({ connectors }: { connectors: Connector[] }) {
+// Why the connector list is empty, when the gateway knows: a boot the
+// backend answered Pending/Rejected means StatusNotification never
+// comes. Null when the last boot was Accepted or not recorded.
+function bootHint(cp: ChargePointSummary): string | null {
+  const d = describeBootDecision(cp);
+  if (!d) return null;
+  return `${d.title}: ${d.detail}`;
+}
+
+function NoConnectors({ hint, className }: { hint: string | null; className?: string }) {
+  return (
+    <div className={cn('space-y-1', className)}>
+      <p className="text-sm text-muted-foreground">No connectors reported.</p>
+      {hint ? (
+        <p
+          className="text-xs text-amber-700 dark:text-amber-400"
+          data-testid="connectors-boot-hint"
+        >
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectorTable({
+  connectors,
+  hint = null,
+}: {
+  connectors: Connector[];
+  hint?: string | null;
+}) {
   if (connectors.length === 0) {
-    return <p className="text-sm text-muted-foreground">No connectors reported.</p>;
+    return <NoConnectors hint={hint} />;
   }
   return (
     <Table>
@@ -351,9 +386,15 @@ function ConnectorTable({ connectors }: { connectors: Connector[] }) {
   );
 }
 
-function ConnectorCards({ connectors }: { connectors: Connector[] }) {
+function ConnectorCards({
+  connectors,
+  hint = null,
+}: {
+  connectors: Connector[];
+  hint?: string | null;
+}) {
   if (connectors.length === 0) {
-    return <p className="px-4 pb-4 text-sm text-muted-foreground">No connectors reported.</p>;
+    return <NoConnectors hint={hint} className="px-4 pb-4" />;
   }
   // Vertical stack of mini-cards; each shows the same fields the
   // table does, but in a single-column layout that fits 360 px wide.

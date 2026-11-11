@@ -18,6 +18,8 @@
 import { withConnectorFreshness } from '@eveys-console/protocol';
 import type { ChargePointSummary } from '@eveys-console/protocol';
 
+import { describeBootDecision } from '@/lib/boot-decision';
+
 export const ACTIVE_SESSION_STATUSES = new Set([
   'Preparing',
   'Charging',
@@ -59,6 +61,10 @@ export interface CommandAvailability {
 
 export function canRemoteStart(cp: ChargePointSummary): CommandAvailability {
   if (!cp.online) return { enabled: false, reason: 'Charger is offline.' };
+  // A boot the backend did not accept is the *cause* of an empty
+  // connector list — name it before the generic "no connectors" hint.
+  const boot = describeBootDecision(cp);
+  if (boot) return { enabled: false, reason: `Boot not accepted (${boot.status}): ${boot.title}.` };
   if (cp.connectors.length === 0) return { enabled: false, reason: 'No connectors reported yet.' };
   if (!hasStartableConnector(cp))
     return { enabled: false, reason: 'No connector is Available — already in a session?' };

@@ -21,6 +21,7 @@ import { ChargerSpecChips } from '@/components/ChargerSpecChips';
 import { ConnectorDataNotice, physicalConnectors } from '@/components/ConnectorDataNotice';
 import { TimeAgo } from '@/components/TimeAgo';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { BootDecisionBadge } from '@/components/BootDecisionBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -575,9 +576,12 @@ function FleetTableRow({
           </div>
         </TableCell>
         <TableCell>
-          <Badge variant={row.online ? 'success' : 'muted'}>
-            {row.online ? 'online' : 'offline'}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge variant={row.online ? 'success' : 'muted'}>
+              {row.online ? 'online' : 'offline'}
+            </Badge>
+            <BootDecisionBadge cp={row} data-testid="fleet-row-boot-decision" />
+          </div>
         </TableCell>
         <TableCell>
           <PodCell podId={row.pod_id} />
@@ -648,9 +652,12 @@ function FleetCard({ row }: { row: ChargePointSummary }) {
           >
             {row.cp_id}
           </Link>
-          <Badge variant={row.online ? 'success' : 'muted'} className="shrink-0">
-            {row.online ? 'online' : 'offline'}
-          </Badge>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+            <Badge variant={row.online ? 'success' : 'muted'} className="shrink-0">
+              {row.online ? 'online' : 'offline'}
+            </Badge>
+            <BootDecisionBadge cp={row} data-testid="fleet-card-boot-decision" />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">

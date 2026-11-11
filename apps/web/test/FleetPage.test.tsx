@@ -854,3 +854,44 @@ describe('FleetPage — OCPP version column', () => {
     expect(screen.getByTestId('fleet-row-ocpp-version')).toHaveTextContent('—');
   });
 });
+
+describe('FleetPage — last boot decision badge', () => {
+  it('shows a boot badge on rows whose last boot was not Accepted, none otherwise', () => {
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-points',
+        rows: [
+          baseRow('SN20052210130151', {
+            connectors: [],
+            last_boot_status: 'Pending',
+            last_boot_reason: 'backend_pending',
+          }),
+          baseRow('CP_OK', { last_boot_status: 'Accepted', last_boot_reason: 'backend_accepted' }),
+          baseRow('CP_OLD'),
+        ],
+        next_cursor: null,
+      },
+    };
+    render(<FleetPage />);
+    const badges = screen.getAllByTestId('fleet-row-boot-decision');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('boot: Pending');
+    expect(badges[0]).toHaveAttribute('title', expect.stringMatching(/backend registration/i));
+  });
+
+  it('shows the badge on the grid card too', async () => {
+    const user = userEvent.setup();
+    nextSubResult = {
+      snapshot: {
+        kind: 'charge-points',
+        rows: [
+          baseRow('CP_REJ', { last_boot_status: 'Rejected', last_boot_reason: 'backend_rejected' }),
+        ],
+        next_cursor: null,
+      },
+    };
+    render(<FleetPage />);
+    await user.click(screen.getByRole('button', { name: /grid/i }));
+    expect(screen.getByTestId('fleet-card-boot-decision')).toHaveTextContent('boot: Rejected');
+  });
+});
